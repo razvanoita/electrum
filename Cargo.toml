@@ -1,0 +1,13 @@
+[package]
+name = "electrum"
+version = "0.1.0"
+authors = ["rmoita"]
+edition = "2018"
+
+[dependencies]
+vulkano = "0.11"
+vulkano-shaders = "0.11"
+cgmath = "0.16"
+image = "0.20"
+winit = "0.18"
+time = "0.1.37"
