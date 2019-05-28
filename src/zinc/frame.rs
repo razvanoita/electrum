@@ -43,7 +43,7 @@ unsafe impl vulkano::framebuffer::RenderPassDesc for FrameGraphRenderPassDesc {
     }
 
     fn num_dependencies(&self) -> usize {
-        
+        self.num_subpasses.saturating_sub(1)
     }
 }
 
