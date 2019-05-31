@@ -27,7 +27,7 @@ unsafe impl vulkano::framebuffer::RenderPassDesc for FrameGraphRenderPassDesc {
 
     fn attachment_desc(&self, id: usize) -> Option<vulkano::framebuffer::AttachmentDescription> {
         if self.attachments.len() > id {
-            Some(self.attachments[id])
+            Some(self.attachments[id].clone())
         } else {
             None
         }
@@ -39,7 +39,7 @@ unsafe impl vulkano::framebuffer::RenderPassDesc for FrameGraphRenderPassDesc {
 
     fn subpass_desc(&self, id: usize) -> Option<vulkano::framebuffer::PassDescription> {
         if self.passes.len() > id {
-            Some(self.passes[id])
+            Some(self.passes[id].clone())
         } else {
             None
         }
@@ -54,7 +54,7 @@ unsafe impl vulkano::framebuffer::RenderPassDesc for FrameGraphRenderPassDesc {
             return None;
         }
 
-        Some(self.pass_dependencies[id])
+        Some(self.pass_dependencies[id].clone())
     }
 }
 
@@ -160,6 +160,46 @@ impl FrameGraph {
             ]
         );
 
-       let render_pass = render_pass_desc.build_render_pass(gfx_queue.device().clone());
+       let render_pass = Arc::new(render_pass_desc.build_render_pass(gfx_queue.device().clone()).unwrap());
+
+       // --- create attachements, why 1x1 though, TODO investigate
+       let attachment_usage = vulkano::image::ImageUsage {
+           transient_attachment: true,
+           input_attachment: true,
+           .. vulkano::image::ImageUsage::none()
+       };
+
+       // --- diffuse
+       let gbuffer0 = vulkano::image::AttachmentImage::with_usage(
+           gfx_queue.device().clone(),
+           [1, 1],
+           vulkano::format::Format::A2B10G10R10UnormPack32,
+           attachment_usage
+       ).unwrap();
+
+       // --- normals
+       let gbuffer1 = vulkano::image::AttachmentImage::with_usage(
+           gfx_queue.device().clone(),
+           [1, 1],
+           vulkano::format::Format::R16G16B16A16Sfloat,
+           attachment_usage
+       ).unwrap();
+
+       // --- depth
+       let depthbuffer = vulkano::image::AttachmentImage::with_usage(
+           gfx_queue.device().clone(),
+           [1, 1],
+           vulkano::format::Format::D16Unorm,
+           attachment_usage
+       ).unwrap();
+
+       FrameGraph {
+           gfx_queue: gfx_queue,
+           render_pass: render_pass,
+           depth_buffer: depthbuffer,
+           gbuffer0: gbuffer0,
+           gbuffer1: gbuffer1,
+           output_format: output_format
+       }
     }
 }
