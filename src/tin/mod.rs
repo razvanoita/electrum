@@ -25,15 +25,20 @@ pub fn record_submit_command_buffer<D: DeviceV1_0, F: FnOnce(&D, vk::CommandBuff
     f: F
 ) {
     unsafe {
-        device.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::RELEASE_RESOURCES).expect("Failed to reset command buffer!");
+        device.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::RELEASE_RESOURCES)
+            .expect("Failed to reset command buffer!");
 
-        let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
-        device.begin_command_buffer(command_buffer, &command_buffer_begin_info).expect("Failed to begin command buffer!");
+        device.begin_command_buffer(command_buffer, &command_buffer_begin_info)
+            .expect("Failed to begin command buffer!");
         f(device, command_buffer);
-        device.end_command_buffer(command_buffer).expect("Failed to end command buffer!");
+        device.end_command_buffer(command_buffer)
+            .expect("Failed to end command buffer!");
 
-        let submit_fence = device.create_fence(&vk::FenceCreateInfo::default(), None).expect("Failed to create fence!");
+        let submit_fence = device.create_fence(&vk::FenceCreateInfo::default(), None)
+            .expect("Failed to create fence!");
         let command_buffers = vec![command_buffer];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)
@@ -41,9 +46,11 @@ pub fn record_submit_command_buffer<D: DeviceV1_0, F: FnOnce(&D, vk::CommandBuff
             .command_buffers(&command_buffers)
             .signal_semaphores(signal_semaphores);
 
-        device.queue_submit(submit_queue, &[submit_info.build()], submit_fence).expect("Failed to submit queue!");
+        device.queue_submit(submit_queue, &[submit_info.build()], submit_fence)
+            .expect("Failed to submit queue!");
 
-        device.wait_for_fences(&[submit_fence], true, std::u64::MAX).expect("Failed to wait for fence!");
+        device.wait_for_fences(&[submit_fence], true, std::u64::MAX)
+            .expect("Failed to wait for fence!");
         device.destroy_fence(submit_fence, None);
     }
 }
@@ -186,7 +193,9 @@ impl DemoBase {
             let app_name = CString::new("Electrum").unwrap();
 
             let layer_names = [CString::new("VK_LAYER_LUNARG_standard_validation").unwrap()];
-            let layers_names_raw: Vec<*const i8> = layer_names.iter().map(|raw_name| raw_name.as_ptr()).collect();
+            let layers_names_raw: Vec<*const i8> = layer_names.iter()
+                .map(|raw_name| raw_name.as_ptr())
+                .collect();
 
             let extension_names_raw = extension_names();
 
@@ -195,22 +204,57 @@ impl DemoBase {
                 .application_version(0)
                 .engine_name(&app_name)
                 .engine_version(0)
-                .api_version(vk_make_version!(1, 0, 0));
+                .api_version(ash::vk_make_version!(1, 0, 0));
 
             let create_info = vk::InstanceCreateInfo::builder()
                 .application_info(&appinfo)
                 .enabled_layer_names(&layers_names_raw)
                 .enabled_extension_names(&extension_names_raw);
 
-            let instance: Instance = entry.create_instance(&create_info, None).expect("Instance creation error");
+            let instance: Instance = entry.create_instance(&create_info, None)
+                .expect("Failed to create instance!");
 
             let debug_info = vk::DebugReportCallbackCreateInfoEXT::builder()
-                .flags(
-                    vk::DebugReportFlagsEXT::ERROR
-                        | vk::DebugReportFlagsEXT::WARNING
-                        | vk::DebugReportFlagsEXT::PERFORMANCE_WARNING,
-                )
-            .pfn_callback(Some(vulkan_debug_callback));
+                .flags(vk::DebugReportFlagsEXT::ERROR | vk::DebugReportFlagsEXT::WARNING | vk::DebugReportFlagsEXT::PERFORMANCE_WARNING)
+                .pfn_callback(Some(vulkan_debug_callback));
+
+            let debug_report_loader = DebugReport::new(&entry, &instance);
+            let debug_call_back = debug_report_loader.create_debug_report_callback(&debug_info, None).unwrap();
+            let surface = create_surface(&entry, &instance, &window).unwrap();
+            let physical_devices = instance.enumerate_physical_devices()
+                .expect("Failed to enumerate physical devices!");
+            let surface_loader = Surface::new(&entry, &instance);
+            let (physical_device, queue_family_index) = physical_devices.iter()
+                .map(|pdev| {
+                    instance.get_physical_device_queue_family_properties(*pdev)
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, ref info)| {
+                            let pdev_device_surface_support = surface_loader.get_physical_device_surface_support(*pdev, index as u32, surface);
+                            let supports_graphics_and_surface = info.queue_flags.contains(vk::QueueFlags::GRAPHICS) && pdev_device_surface_support;
+                            match supports_graphics_and_surface {
+                                true => Some((*pdev, index)),
+                                _ => None
+                            }
+                        })
+                        .nth(0)
+                })
+                .filter_map(|v| v)
+                .nth(0)
+                .expect("Failed to find suitable device!");
+
+            let queue_family_index = queue_family_index as u32;
+            let device_exension_names_raw = [Swapchain::name().as_ptr()];
+            let features = vk::PhysicalDeviceFeatures {
+                shader_clip_distance: 1,
+                ..Default::default()
+            };
+            let priorities = [1.0];
+
+            let queue_info = [vk::DeviceQueueCreateInfo::builder()
+                .queue_family_index(queue_family_index)
+                .queue_priorities(&priorities)
+                .build()];
         }
     }
 }
