@@ -3,6 +3,8 @@ use ash::vk;
 pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::{Device, Entry, Instance};
 
+use cgmath::*;
+
 mod tin;
 
 use std::default::Default;
@@ -16,6 +18,12 @@ use std::path::Path;
 struct Vertex {
     position: [f32; 4],
     color: [f32; 4]
+}
+
+#[derive(Clone, Debug, Copy)]
+struct UBO {
+    view_projection: cgmath::Matrix4<f32>,
+    world: cgmath::Matrix4<f32>
 }
 
 fn main() {
@@ -166,6 +174,47 @@ fn main() {
         demo.device.bind_buffer_memory(vertex_buffer, vertex_buffer_mem, 0)
             .unwrap();
 
+        // --- create uniform buffer
+        let projection_matrix = cgmath::perspective(
+            cgmath::Rad::from(cgmath::Deg(60.0)), 
+            demo.surface_resolution.width as f32 / demo.surface_resolution.height as f32, 
+            0.1, 
+            256.0
+        );
+        let view_matrix = cgmath::Matrix4::look_at(cgmath::Point3::new(1.0, 1.0, 1.0), cgmath::Point3::new(0.0, 0.0, 0.0), cgmath::Vector3::new(0.0, 1.0, 0.0));
+        let ubo_data = [
+            UBO {
+                view_projection: projection_matrix * view_matrix,
+                world: cgmath::Matrix4::from_translation(cgmath::Vector3::new(0.0, 0.0, 0.0))
+            }
+        ];
+        let ubo_create_info = vk::BufferCreateInfo {
+            size: std::mem::size_of::<UBO>() as u64,
+            usage: vk::BufferUsageFlags::UNIFORM_BUFFER,
+            ..Default::default()
+        };
+        let ubo = demo.device.create_buffer(&ubo_create_info, None)
+            .unwrap();
+        let ubo_mem_req = demo.device.get_buffer_memory_requirements(ubo);
+        let ubo_mem_idx = tin::find_memorytype_index(
+            &ubo_mem_req, 
+            &demo.device_memory_properties, 
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
+        )
+            .expect("Failed to find suitable memory type for uniform buffer!");
+        let ubo_allocate_info = vk::MemoryAllocateInfo {
+            allocation_size: ubo_mem_req.size,
+            memory_type_index: ubo_mem_idx,
+            ..Default::default()
+        };
+        let ubo_mem = demo.device.allocate_memory(&ubo_allocate_info, None)
+            .unwrap();
+        let ubo_ptr = demo.device.map_memory(ubo_mem, 0, ubo_mem_req.size, vk::MemoryMapFlags::empty())
+            .unwrap();
+        let mut ubo_align = Align::new(ubo_ptr, align_of::<UBO>() as u64, ubo_mem_req.size);
+        ubo_align.copy_from_slice(&ubo_data);
+
+        // --- create shaders
         let mut vertex_spv_file = File::open(Path::new("copper/shaders/triangle_vert.spv"))
             .expect("Could not find vertex .spv file!");
         let mut fragment_spv_file = File::open(Path::new("copper/shaders/triangle_frag.spv"))
