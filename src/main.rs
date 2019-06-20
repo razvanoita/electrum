@@ -213,6 +213,29 @@ fn main() {
             .unwrap();
         let mut ubo_align = Align::new(ubo_ptr, align_of::<UBO>() as u64, ubo_mem_req.size);
         ubo_align.copy_from_slice(&ubo_data);
+        demo.device.unmap_memory(ubo_mem);
+        demo.device.bind_buffer_memory(ubo, ubo_mem, 0)
+            .unwrap();
+        let ubo_desc_buffer_info = vk::DescriptorBufferInfo::builder()
+            .buffer(ubo)
+            .offset(0 as u64)
+            .range(std::mem::size_of::<UBO>() as u64)
+            .build();
+
+        let decriptor_set_layout_binding = vk::DescriptorSetLayoutBinding {
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::VERTEX,
+            binding: 0,
+            ..Default::default()
+        };
+        let descriptor_set_layout_info = vk::DescriptorSetLayoutCreateInfo {
+            binding_count: 1,
+            p_bindings: &decriptor_set_layout_binding,
+            ..Default::default()
+        };
+        let descriptor_set_layout = demo.device.create_descriptor_set_layout(&descriptor_set_layout_info, None)
+            .unwrap();
 
         // --- create shaders
         let mut vertex_spv_file = File::open(Path::new("copper/shaders/triangle_vert.spv"))
@@ -233,7 +256,11 @@ fn main() {
         let fs_module = demo.device.create_shader_module(&fs_info, None)
             .expect("Failed to create fragment shader module!");
 
-        let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default();
+        let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo {
+            set_layout_count: 1,
+            p_set_layouts: &descriptor_set_layout,
+            ..Default::default()
+        };
         let pipeline_layout = demo.device.create_pipeline_layout(&pipeline_layout_create_info, None)
             .unwrap();
         
@@ -367,6 +394,33 @@ fn main() {
             .expect("Failed to create graphics pipelines!");
         let gfx_pipeline = gfx_pipelines[0];
 
+        // --- setup descriptor pool
+        let descriptor_pool_sizes = vk::DescriptorPoolSize::builder()
+            .ty(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(1)
+            .build();
+        let descriptor_pool_create_info = vk::DescriptorPoolCreateInfo::builder()
+            .pool_sizes(&[descriptor_pool_sizes])
+            .max_sets(1)
+            .build();
+        let descriptor_pool = demo.device.create_descriptor_pool(&descriptor_pool_create_info, None)
+            .unwrap();
+
+        // --- setup descriptor set
+        let descriptor_set_alloc_info =  vk::DescriptorSetAllocateInfo::builder()
+            .set_layouts(&[descriptor_set_layout])
+            .descriptor_pool(descriptor_pool)
+            .build();
+        let descriptor_sets =  demo.device.allocate_descriptor_sets(&descriptor_set_alloc_info)
+            .unwrap();
+        let write_descriptor_set = vk::WriteDescriptorSet::builder()
+            .dst_binding(0)
+            .buffer_info(&[ubo_desc_buffer_info])
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .dst_set(descriptor_sets[0])
+            .build();
+        demo.device.update_descriptor_sets(&[write_descriptor_set], &[]);
+
         demo.render(|| {
             let (present_idx, _) = demo.swapchain_loader.acquire_next_image(demo.swapchain, std::u64::MAX, demo.present_complete_semaphore, vk::Fence::null())
                 .unwrap();
@@ -397,6 +451,7 @@ fn main() {
                     device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, gfx_pipeline);
                     device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                     device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
+                    device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline_layout, 0, descriptor_sets.as_slice(), &[]);
                     device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[vertex_buffer], &[0]);
                     device.cmd_bind_index_buffer(draw_command_buffer, index_buffer, 0, vk::IndexType::UINT32);
                     device.cmd_draw_indexed(draw_command_buffer, index_buffer_data.len() as u32, 1, 0, 0, 1);
