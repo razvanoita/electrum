@@ -3,7 +3,7 @@
 layout (location = 0) in vec4 position;
 layout (location = 1) in vec4 color;
 
-layout (binding = 0) uniform UBO
+layout (set = 0, binding = 0) uniform UBO
 {
     mat4 viewProjection;
     mat4 world;
