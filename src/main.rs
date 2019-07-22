@@ -6,6 +6,7 @@ use ash::{Device, Entry, Instance};
 use cgmath::*;
 
 mod tin;
+mod pewter;
 
 use std::default::Default;
 use std::ffi::CString;
@@ -145,34 +146,13 @@ fn main() {
                 color: [1.0, 0.0, 0.0, 1.0]
             }
         ];
-        let vertex_buffer_info = vk::BufferCreateInfo {
-            size: 3 * std::mem::size_of::<Vertex>() as u64,
-            usage: vk::BufferUsageFlags::VERTEX_BUFFER,
-            sharing_mode: vk::SharingMode::EXCLUSIVE,
-            ..Default::default()
-        };
-        let vertex_buffer = demo.device.create_buffer(&vertex_buffer_info, None)
+        let vb = pewter::VertexBuffer::new(&demo.device, &demo.device_memory_properties, 3 * std::mem::size_of::<Vertex>() as u64);
+        let vb_ptr = demo.device.map_memory(vb.memory, 0, vb.size, vk::MemoryMapFlags::empty())
             .unwrap();
-        let vertex_buffer_mem_req = demo.device.get_buffer_memory_requirements(vertex_buffer);
-        let vertex_buffer_mem_idx = tin::find_memorytype_index(
-            &vertex_buffer_mem_req, 
-            &demo.device_memory_properties, 
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
-        )
-            .expect("Failed to find suitable memory type for vertex buffer!");
-        let vertex_buffer_allocate_info = vk::MemoryAllocateInfo {
-            allocation_size: vertex_buffer_mem_req.size,
-            memory_type_index: vertex_buffer_mem_idx,
-            ..Default::default()
-        };
-        let vertex_buffer_mem = demo.device.allocate_memory(&vertex_buffer_allocate_info, None)
-            .unwrap();
-        let vertex_buffer_ptr = demo.device.map_memory(vertex_buffer_mem, 0, vertex_buffer_mem_req.size, vk::MemoryMapFlags::empty())
-            .unwrap();
-        let mut vertex_buffer_align = Align::new(vertex_buffer_ptr, align_of::<Vertex>() as u64, vertex_buffer_mem_req.size);
-        vertex_buffer_align.copy_from_slice(&vertices);
-        demo.device.unmap_memory(vertex_buffer_mem);
-        demo.device.bind_buffer_memory(vertex_buffer, vertex_buffer_mem, 0)
+        let mut vb_aligned_ptr = Align::new(vb_ptr, align_of::<Vertex>() as u64, vb.size);
+        vb_aligned_ptr.copy_from_slice(&vertices);
+        demo.device.unmap_memory(vb.memory);
+        demo.device.bind_buffer_memory(vb.buffer, vb.memory, 0)
             .unwrap();
 
         // --- create uniform buffer
@@ -459,7 +439,7 @@ fn main() {
                     device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, gfx_pipeline);
                     device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                     device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                    device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[vertex_buffer], &[0]);
+                    device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[vb.buffer], &[0]);
                     device.cmd_bind_index_buffer(draw_command_buffer, index_buffer, 0, vk::IndexType::UINT32);
                     device.cmd_draw_indexed(draw_command_buffer, index_buffer_data.len() as u32, 1, 0, 0, 1);
                     device.cmd_end_render_pass(draw_command_buffer);
@@ -482,6 +462,7 @@ fn main() {
             demo.device.destroy_pipeline(pipeline, None);
         }
         demo.device.destroy_pipeline_layout(pipeline_layout, None);
+        demo.device.destroy_descriptor_pool(descriptor_pool, None);
         for layout in descriptor_set_layouts.iter() {
             demo.device.destroy_descriptor_set_layout(*layout, None);
         }
@@ -489,8 +470,7 @@ fn main() {
         demo.device.destroy_shader_module(fs_module, None);
         demo.device.free_memory(index_buffer_mem, None);
         demo.device.destroy_buffer(index_buffer, None);
-        demo.device.free_memory(vertex_buffer_mem, None);
-        demo.device.destroy_buffer(vertex_buffer, None);
+        vb.destroy(&demo.device);
         demo.device.free_memory(ubo_mem, None);
         demo.device.destroy_buffer(ubo, None);
         for framebuffer in framebuffers {
