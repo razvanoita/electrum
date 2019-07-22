@@ -43,7 +43,7 @@ fn main() {
             vk::AttachmentDescription {
                 format: vk::Format::D16_UNORM,
                 samples: vk::SampleCountFlags::TYPE_1,
-                load_op: vk::AttachmentLoadOp::LOAD,
+                load_op: vk::AttachmentLoadOp::CLEAR,
                 initial_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                 final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                 ..Default::default()
@@ -182,7 +182,7 @@ fn main() {
             0.1, 
             256.0
         );
-        let view_matrix = cgmath::Matrix4::look_at(cgmath::Point3::new(0.0, 0.0, 0.0), cgmath::Point3::new(0.0, 0.0, 1.0), cgmath::Vector3::new(0.0, 1.0, 0.0));
+        let view_matrix = cgmath::Matrix4::look_at(cgmath::Point3::new(0.0, 0.0, -1.0), cgmath::Point3::new(0.0, 0.0, 1.0), cgmath::Vector3::new(0.0, 1.0, 0.0));
         let ubo_data = [
             UBO {
                 view_projection: projection_matrix.mul(view_matrix),
@@ -482,12 +482,17 @@ fn main() {
             demo.device.destroy_pipeline(pipeline, None);
         }
         demo.device.destroy_pipeline_layout(pipeline_layout, None);
+        for layout in descriptor_set_layouts.iter() {
+            demo.device.destroy_descriptor_set_layout(*layout, None);
+        }
         demo.device.destroy_shader_module(vs_module, None);
         demo.device.destroy_shader_module(fs_module, None);
         demo.device.free_memory(index_buffer_mem, None);
         demo.device.destroy_buffer(index_buffer, None);
         demo.device.free_memory(vertex_buffer_mem, None);
         demo.device.destroy_buffer(vertex_buffer, None);
+        demo.device.free_memory(ubo_mem, None);
+        demo.device.destroy_buffer(ubo, None);
         for framebuffer in framebuffers {
             demo.device.destroy_framebuffer(framebuffer, None);
         }
