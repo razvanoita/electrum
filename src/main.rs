@@ -8,6 +8,8 @@ use cgmath::*;
 mod tin;
 mod pewter;
 
+use pewter::Buffer;
+
 use std::default::Default;
 use std::ffi::CString;
 use std::fs::File;
@@ -103,35 +105,18 @@ fn main() {
             })
             .collect();
         
+        // --- create index buffer
         let index_buffer_data = [0u32, 1, 2];
-        let index_buffer_info = vk::BufferCreateInfo::builder()
-            .size(std::mem::size_of_val(&index_buffer_data) as u64)
-            .usage(vk::BufferUsageFlags::INDEX_BUFFER)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        let index_buffer = demo.device.create_buffer(&index_buffer_info, None)
+        let ib = pewter::IndexBuffer::new(&demo.device, &demo.device_memory_properties, index_buffer_data.len(), mem::size_of::<u32>());
+        let ib_ptr = demo.device.map_memory(ib.memory, 0, ib.count as u64 * ib.stride as u64, vk::MemoryMapFlags::empty())
             .unwrap();
-        let index_buffer_mem_req = demo.device.get_buffer_memory_requirements(index_buffer);
-        let index_buffer_mem_idx = tin::find_memorytype_index(
-            &index_buffer_mem_req, 
-            &demo.device_memory_properties, 
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
-        )
-            .expect("Failed to find memory type for index buffer!");
-        let index_allocate_info = vk::MemoryAllocateInfo {
-            allocation_size: index_buffer_mem_req.size,
-            memory_type_index: index_buffer_mem_idx,
-            ..Default::default()
-        };
-        let index_buffer_mem = demo.device.allocate_memory(&index_allocate_info, None)
-            .unwrap();
-        let index_ptr = demo.device.map_memory(index_buffer_mem, 0, index_buffer_mem_req.size, vk::MemoryMapFlags::empty())
-            .unwrap();
-        let mut index_slice = Align::new(index_ptr, align_of::<u32>() as u64, index_buffer_mem_req.size);
-        index_slice.copy_from_slice(&index_buffer_data);
-        demo.device.unmap_memory(index_buffer_mem);
-        demo.device.bind_buffer_memory(index_buffer, index_buffer_mem, 0)
+        let mut ib_aligned_ptr = Align::new(ib_ptr, align_of::<u32>() as u64, ib.count as u64 * ib.stride as u64);
+        ib_aligned_ptr.copy_from_slice(&index_buffer_data);
+        demo.device.unmap_memory(ib.memory);
+        demo.device.bind_buffer_memory(ib.buffer, ib.memory, 0)
             .unwrap();
 
+        // --- create vertex buffer
         let vertices = [
             Vertex {
                 position: [-1.0, 1.0, 0.0, 1.0],
@@ -146,7 +131,12 @@ fn main() {
                 color: [1.0, 0.0, 0.0, 1.0]
             }
         ];
-        let vb = pewter::VertexBuffer::new(&demo.device, &demo.device_memory_properties, 3 * std::mem::size_of::<Vertex>() as u64);
+        let vb = pewter::VertexBuffer::new(
+            &demo.device, 
+            &demo.device_memory_properties, 
+            3 * std::mem::size_of::<Vertex>() as u64, 
+            vk::BufferUsageFlags::VERTEX_BUFFER
+        );
         let vb_ptr = demo.device.map_memory(vb.memory, 0, vb.size, vk::MemoryMapFlags::empty())
             .unwrap();
         let mut vb_aligned_ptr = Align::new(vb_ptr, align_of::<Vertex>() as u64, vb.size);
@@ -440,7 +430,7 @@ fn main() {
                     device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                     device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
                     device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[vb.buffer], &[0]);
-                    device.cmd_bind_index_buffer(draw_command_buffer, index_buffer, 0, vk::IndexType::UINT32);
+                    device.cmd_bind_index_buffer(draw_command_buffer, ib.buffer, 0, vk::IndexType::UINT32);
                     device.cmd_draw_indexed(draw_command_buffer, index_buffer_data.len() as u32, 1, 0, 0, 1);
                     device.cmd_end_render_pass(draw_command_buffer);
                 }
@@ -468,8 +458,7 @@ fn main() {
         }
         demo.device.destroy_shader_module(vs_module, None);
         demo.device.destroy_shader_module(fs_module, None);
-        demo.device.free_memory(index_buffer_mem, None);
-        demo.device.destroy_buffer(index_buffer, None);
+        ib.destroy(&demo.device);
         vb.destroy(&demo.device);
         demo.device.free_memory(ubo_mem, None);
         demo.device.destroy_buffer(ubo, None);
