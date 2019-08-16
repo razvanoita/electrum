@@ -104,19 +104,8 @@ fn main() {
                     .unwrap()
             })
             .collect();
-        
-        // --- create index buffer
-        let index_buffer_data = [0u32, 1, 2];
-        let ib = pewter::IndexBuffer::new(&demo.device, &demo.device_memory_properties, index_buffer_data.len(), mem::size_of::<u32>());
-        let ib_ptr = demo.device.map_memory(ib.memory, 0, ib.count as u64 * ib.stride as u64, vk::MemoryMapFlags::empty())
-            .unwrap();
-        let mut ib_aligned_ptr = Align::new(ib_ptr, align_of::<u32>() as u64, ib.count as u64 * ib.stride as u64);
-        ib_aligned_ptr.copy_from_slice(&index_buffer_data);
-        demo.device.unmap_memory(ib.memory);
-        demo.device.bind_buffer_memory(ib.buffer, ib.memory, 0)
-            .unwrap();
 
-        // --- create vertex buffer
+        // --- create vertex and index buffers using staging buffers
         let vertices = [
             Vertex {
                 position: [-1.0, 1.0, 0.0, 1.0],
@@ -131,19 +120,76 @@ fn main() {
                 color: [1.0, 0.0, 0.0, 1.0]
             }
         ];
-        let vb = pewter::VertexBuffer::new(
+        let vb_staging = pewter::VertexBuffer::construct(
             &demo.device, 
-            &demo.device_memory_properties, 
-            3 * std::mem::size_of::<Vertex>() as u64, 
-            vk::BufferUsageFlags::VERTEX_BUFFER
+            &demo.device_memory_properties,
+            3,
+            std::mem::size_of::<Vertex>() as u64, 
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
         );
-        let vb_ptr = demo.device.map_memory(vb.memory, 0, vb.size, vk::MemoryMapFlags::empty())
+        let vb_staging_ptr = demo.device.map_memory(vb_staging.memory, 0, vb_staging.size, vk::MemoryMapFlags::empty())
             .unwrap();
-        let mut vb_aligned_ptr = Align::new(vb_ptr, align_of::<Vertex>() as u64, vb.size);
-        vb_aligned_ptr.copy_from_slice(&vertices);
-        demo.device.unmap_memory(vb.memory);
+        let mut vb_staging_aligned_ptr = Align::new(vb_staging_ptr, align_of::<Vertex>() as u64, vb_staging.size);
+        vb_staging_aligned_ptr.copy_from_slice(&vertices);
+        demo.device.unmap_memory(vb_staging.memory);
+        demo.device.bind_buffer_memory(vb_staging.buffer, vb_staging.memory, 0)
+            .unwrap();
+
+        let vb = pewter::VertexBuffer::construct(
+            &demo.device, 
+            &demo.device_memory_properties,
+            3,
+            std::mem::size_of::<Vertex>() as u64, 
+            vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL
+        );
         demo.device.bind_buffer_memory(vb.buffer, vb.memory, 0)
             .unwrap();
+        
+        let index_buffer_data = [0u32, 1, 2];
+        let ib_staging = pewter::IndexBuffer::construct(
+            &demo.device, 
+            &demo.device_memory_properties,  
+            index_buffer_data.len() as u64, 
+            mem::size_of::<u32>() as u64,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
+        );
+        let ib_staging_ptr = demo.device.map_memory(ib_staging.memory, 0, ib_staging.count * ib_staging.stride, vk::MemoryMapFlags::empty())
+            .unwrap();
+        let mut ib_staging_aligned_ptr = Align::new(ib_staging_ptr, align_of::<u32>() as u64, ib_staging.count * ib_staging.stride);
+        ib_staging_aligned_ptr.copy_from_slice(&index_buffer_data);
+        demo.device.unmap_memory(ib_staging.memory);
+        demo.device.bind_buffer_memory(ib_staging.buffer, ib_staging.memory, 0)
+            .unwrap();
+
+        let ib = pewter::IndexBuffer::construct(
+            &demo.device, 
+            &demo.device_memory_properties,  
+            index_buffer_data.len() as u64, 
+            mem::size_of::<u32>() as u64,
+            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL
+        );
+        demo.device.bind_buffer_memory(ib.buffer, ib.memory, 0)
+            .unwrap();
+
+        let copy_command_buffer = demo.get_and_begin_command_buffer();
+
+        let copy_region_vb = vk::BufferCopy::builder()
+            .size(vb_staging.size)
+            .build();
+        demo.device.cmd_copy_buffer(copy_command_buffer, vb_staging.buffer, vb.buffer, &[copy_region_vb]);
+        let copy_region_ib = vk::BufferCopy::builder()
+            .size(ib_staging.count * ib_staging.stride)
+            .build();
+        demo.device.cmd_copy_buffer(copy_command_buffer, ib_staging.buffer, ib.buffer, &[copy_region_ib]);
+
+        demo.end_and_submit_command_buffer(copy_command_buffer);
+
+        vb_staging.destroy(&demo.device);        
+        ib_staging.destroy(&demo.device);
 
         // --- create uniform buffer
         let projection_matrix = cgmath::perspective(
@@ -159,41 +205,22 @@ fn main() {
                 world: cgmath::Matrix4::from_translation(cgmath::Vector3::new(0.0, 0.0, 1.0))
             }
         ];
-        let ubo_create_info = vk::BufferCreateInfo {
-            size: std::mem::size_of::<UBO>() as u64,
-            usage: vk::BufferUsageFlags::UNIFORM_BUFFER,
-            ..Default::default()
-        };
-        let ubo = demo.device.create_buffer(&ubo_create_info, None)
-            .unwrap();
-        let ubo_mem_req = demo.device.get_buffer_memory_requirements(ubo);
-        let ubo_mem_idx = tin::find_memorytype_index(
-            &ubo_mem_req, 
-            &demo.device_memory_properties, 
+        let ub = pewter::UniformBuffer::construct(
+            &demo.device, 
+            &demo.device_memory_properties,
+            1,
+            std::mem::size_of::<UBO>() as u64, 
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
-        )
-            .expect("Failed to find suitable memory type for uniform buffer!");
-        let ubo_allocate_info = vk::MemoryAllocateInfo {
-            allocation_size: ubo_mem_req.size,
-            memory_type_index: ubo_mem_idx,
-            ..Default::default()
-        };
-        let ubo_mem = demo.device.allocate_memory(&ubo_allocate_info, None)
+        );
+        let ub_ptr = demo.device.map_memory(ub.memory, 0, ub.descriptor.range, vk::MemoryMapFlags::empty())
             .unwrap();
-        let ubo_ptr = demo.device.map_memory(ubo_mem, 0, ubo_mem_req.size, vk::MemoryMapFlags::empty())
+        let mut ub_aligned_ptr = Align::new(ub_ptr, align_of::<UBO>() as u64, ub.descriptor.range);
+        ub_aligned_ptr.copy_from_slice(&ubo_data);
+        demo.device.unmap_memory(ub.memory);
+        demo.device.bind_buffer_memory(ub.descriptor.buffer, ub.memory, 0)
             .unwrap();
-        let mut ubo_align = Align::new(ubo_ptr, align_of::<UBO>() as u64, ubo_mem_req.size);
-        ubo_align.copy_from_slice(&ubo_data);
-        demo.device.unmap_memory(ubo_mem);
-        demo.device.bind_buffer_memory(ubo, ubo_mem, 0)
-            .unwrap();
-        let ubo_desc_buffer_infos = [
-            vk::DescriptorBufferInfo {
-                buffer: ubo,
-                offset: 0 as u64,
-                range: std::mem::size_of::<UBO>() as u64
-            }
-        ];
+        let ubo_desc_buffer_infos = [ub.descriptor];
         let decriptor_set_layout_binding = vk::DescriptorSetLayoutBinding {
             descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
             descriptor_count: 1,
@@ -460,8 +487,7 @@ fn main() {
         demo.device.destroy_shader_module(fs_module, None);
         ib.destroy(&demo.device);
         vb.destroy(&demo.device);
-        demo.device.free_memory(ubo_mem, None);
-        demo.device.destroy_buffer(ubo, None);
+        ub.destroy(&demo.device);
         for framebuffer in framebuffers {
             demo.device.destroy_framebuffer(framebuffer, None);
         }

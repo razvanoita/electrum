@@ -494,6 +494,45 @@ impl DemoBase {
             }
         }
     }
+
+    pub fn get_and_begin_command_buffer(&self) -> vk::CommandBuffer {
+        unsafe {
+            let command_buffer_info = vk::CommandBufferAllocateInfo::builder()
+                .command_buffer_count(1)
+                .command_pool(self.pool)
+                .level(vk::CommandBufferLevel::PRIMARY);
+            let command_buffers = self.device.allocate_command_buffers(&command_buffer_info)
+                .unwrap();
+            let command_buffer = command_buffers[0];
+            let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+            self.device.begin_command_buffer(command_buffer, &command_buffer_begin_info)
+                .expect("Failed to begin transient command buffer!");
+
+            command_buffer
+        }
+    }
+
+    pub fn end_and_submit_command_buffer(&self, command_buffer: vk::CommandBuffer) {
+        unsafe {
+            self.device.end_command_buffer(command_buffer)
+                .expect("Failed to end command buffer!");
+
+            let submit_fence = self.device.create_fence(&vk::FenceCreateInfo::default(), None)
+                .expect("Failed to create fence!");
+            let command_buffers = vec![command_buffer];
+            let submit_info = vk::SubmitInfo::builder()
+                .command_buffers(&command_buffers);
+
+            self.device.queue_submit(self.present_queue, &[submit_info.build()], submit_fence)
+                .expect("Failed to submit queue!");
+
+            self.device.wait_for_fences(&[submit_fence], true, std::u64::MAX)
+                .expect("Failed to wait for fence!");
+            self.device.destroy_fence(submit_fence, None);
+        }
+    }
 }
 
 impl Drop for DemoBase {
