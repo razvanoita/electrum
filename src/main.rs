@@ -7,6 +7,7 @@ use cgmath::*;
 
 mod tin;
 mod pewter;
+mod bendalloy;
 
 use pewter::Buffer;
 
@@ -19,12 +20,6 @@ use std::path::Path;
 use std::ops::Mul;
 
 #[derive(Clone, Debug, Copy)]
-struct Vertex {
-    position: [f32; 4],
-    color: [f32; 4]
-}
-
-#[derive(Clone, Debug, Copy)]
 struct UBO {
     view_projection: cgmath::Matrix4<f32>,
     world: cgmath::Matrix4<f32>
@@ -32,7 +27,8 @@ struct UBO {
 
 fn main() {
     unsafe {
-        let demo = tin::DemoBase::new(1920, 1080);
+        let demo_app = tin::DemoApp::new(1920, 1080);
+        let mut demo = demo_app.build_ctx();
 
         let renderpass_atachments = [
             vk::AttachmentDescription {
@@ -104,34 +100,23 @@ fn main() {
                     .unwrap()
             })
             .collect();
+        
+        // --- draw a tetrahedron
+        let tetrahedron = bendalloy::platonic::tetrahedron();
 
         // --- create vertex and index buffers using staging buffers
-        let vertices = [
-            Vertex {
-                position: [-1.0, 1.0, 0.0, 1.0],
-                color: [0.0, 1.0, 0.0, 1.0],
-            },
-            Vertex {
-                position: [1.0, 1.0, 0.0, 1.0],
-                color: [0.0, 0.0, 1.0, 1.0]
-            },
-            Vertex {
-                position: [0.0, -1.0, 0.0, 1.0],
-                color: [1.0, 0.0, 0.0, 1.0]
-            }
-        ];
         let vb_staging = pewter::VertexBuffer::construct(
             &demo.device, 
             &demo.device_memory_properties,
-            3,
-            std::mem::size_of::<Vertex>() as u64, 
+            tetrahedron.vertices.len() as u64,
+            std::mem::size_of::<bendalloy::platonic::Vertex>() as u64,
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
         );
         let vb_staging_ptr = demo.device.map_memory(vb_staging.memory, 0, vb_staging.size, vk::MemoryMapFlags::empty())
             .unwrap();
-        let mut vb_staging_aligned_ptr = Align::new(vb_staging_ptr, align_of::<Vertex>() as u64, vb_staging.size);
-        vb_staging_aligned_ptr.copy_from_slice(&vertices);
+        let mut vb_staging_aligned_ptr = Align::new(vb_staging_ptr, align_of::<bendalloy::platonic::Vertex>() as u64, vb_staging.size);
+        vb_staging_aligned_ptr.copy_from_slice(&tetrahedron.vertices);
         demo.device.unmap_memory(vb_staging.memory);
         demo.device.bind_buffer_memory(vb_staging.buffer, vb_staging.memory, 0)
             .unwrap();
@@ -139,19 +124,18 @@ fn main() {
         let vb = pewter::VertexBuffer::construct(
             &demo.device, 
             &demo.device_memory_properties,
-            3,
-            std::mem::size_of::<Vertex>() as u64, 
+            tetrahedron.vertices.len() as u64,
+            std::mem::size_of::<bendalloy::platonic::Vertex>() as u64,
             vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
             vk::MemoryPropertyFlags::DEVICE_LOCAL
         );
         demo.device.bind_buffer_memory(vb.buffer, vb.memory, 0)
             .unwrap();
         
-        let index_buffer_data = [0u32, 1, 2];
         let ib_staging = pewter::IndexBuffer::construct(
             &demo.device, 
             &demo.device_memory_properties,  
-            index_buffer_data.len() as u64, 
+            tetrahedron.indices.len() as u64,
             mem::size_of::<u32>() as u64,
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
@@ -159,7 +143,7 @@ fn main() {
         let ib_staging_ptr = demo.device.map_memory(ib_staging.memory, 0, ib_staging.count * ib_staging.stride, vk::MemoryMapFlags::empty())
             .unwrap();
         let mut ib_staging_aligned_ptr = Align::new(ib_staging_ptr, align_of::<u32>() as u64, ib_staging.count * ib_staging.stride);
-        ib_staging_aligned_ptr.copy_from_slice(&index_buffer_data);
+        ib_staging_aligned_ptr.copy_from_slice(&tetrahedron.indices);
         demo.device.unmap_memory(ib_staging.memory);
         demo.device.bind_buffer_memory(ib_staging.buffer, ib_staging.memory, 0)
             .unwrap();
@@ -167,7 +151,7 @@ fn main() {
         let ib = pewter::IndexBuffer::construct(
             &demo.device, 
             &demo.device_memory_properties,  
-            index_buffer_data.len() as u64, 
+            tetrahedron.indices.len() as u64,
             mem::size_of::<u32>() as u64,
             vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
             vk::MemoryPropertyFlags::DEVICE_LOCAL
@@ -198,7 +182,7 @@ fn main() {
             0.1, 
             256.0
         );
-        let view_matrix = cgmath::Matrix4::look_at(cgmath::Point3::new(0.0, 0.0, -1.0), cgmath::Point3::new(0.0, 0.0, 1.0), cgmath::Vector3::new(0.0, 1.0, 0.0));
+        let view_matrix = cgmath::Matrix4::look_at(cgmath::Point3::new(5.0, 1.0, -1.0), cgmath::Point3::new(0.0, 0.0, 1.0), cgmath::Vector3::new(0.0, 0.5, 0.5));
         let ubo_data = [
             UBO {
                 view_projection: projection_matrix.mul(view_matrix),
@@ -284,7 +268,7 @@ fn main() {
         let vertex_input_binding_descs = [
             vk::VertexInputBindingDescription {
                 binding: 0,
-                stride: mem::size_of::<Vertex>() as u32,
+                stride: mem::size_of::<bendalloy::platonic::Vertex>() as u32,
                 input_rate: vk::VertexInputRate::VERTEX
             }
         ];
@@ -293,13 +277,19 @@ fn main() {
                 location: 0,
                 binding: 0, 
                 format: vk::Format::R32G32B32A32_SFLOAT,
-                offset: offset_of!(Vertex, position) as u32
+                offset: offset_of!(bendalloy::platonic::Vertex, position) as u32
             },
             vk::VertexInputAttributeDescription {
                 location: 1,
                 binding: 0,
                 format: vk::Format::R32G32B32A32_SFLOAT,
-                offset: offset_of!(Vertex, color) as u32
+                offset: offset_of!(bendalloy::platonic::Vertex, normal) as u32
+            },
+            vk::VertexInputAttributeDescription {
+                location: 2,
+                binding: 0,
+                format: vk::Format::R32G32B32A32_SFLOAT,
+                offset: offset_of!(bendalloy::platonic::Vertex, color) as u32
             }
         ];
 
@@ -425,54 +415,61 @@ fn main() {
             .dst_set(descriptor_sets[0]);
         demo.device.update_descriptor_sets(&[write_descriptor_set.build()], &[]);
 
-        demo.render(|| {
-            let (present_idx, _) = demo.swapchain_loader.acquire_next_image(demo.swapchain, std::u64::MAX, demo.present_complete_semaphore, vk::Fence::null())
-                .unwrap();
-            let clear_values = [
-                vk::ClearValue {
-                    color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 0.0] }
-                },
-                vk::ClearValue {
-                    depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 }
-                }
-            ];
+        demo_app.run(
+            || {
+                demo.frame_start = std::time::SystemTime::now();
+                let (present_idx, _) = demo.swapchain_loader.acquire_next_image(demo.swapchain, std::u64::MAX, demo.present_complete_semaphore, vk::Fence::null())
+                    .unwrap();
+                let clear_values = [
+                    vk::ClearValue {
+                        color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 0.0] }
+                    },
+                    vk::ClearValue {
+                        depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 }
+                    }
+                ];
 
-            let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-                .render_pass(renderpass)
-                .framebuffer(framebuffers[present_idx as usize])
-                .render_area(vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0}, extent: demo.surface_resolution.clone() })
-                .clear_values(&clear_values);
+                let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+                    .render_pass(renderpass)
+                    .framebuffer(framebuffers[present_idx as usize])
+                    .render_area(vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0}, extent: demo.surface_resolution.clone() })
+                    .clear_values(&clear_values);
 
-            tin::record_submit_command_buffer(
-                &demo.device,
-                demo.draw_command_buffer,
-                demo.present_queue,
-                &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT],
-                &[demo.present_complete_semaphore],
-                &[demo.rendering_complete_semaphore],
-                |device, draw_command_buffer| {
-                    device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
-                    device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline_layout, 0, &descriptor_sets, &[]);
-                    device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, gfx_pipeline);
-                    device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
-                    device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                    device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[vb.buffer], &[0]);
-                    device.cmd_bind_index_buffer(draw_command_buffer, ib.buffer, 0, vk::IndexType::UINT32);
-                    device.cmd_draw_indexed(draw_command_buffer, index_buffer_data.len() as u32, 1, 0, 0, 1);
-                    device.cmd_end_render_pass(draw_command_buffer);
-                }
-            );
+                tin::record_submit_command_buffer(
+                    &demo.device,
+                    demo.draw_command_buffer,
+                    demo.present_queue,
+                    &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT],
+                    &[demo.present_complete_semaphore],
+                    &[demo.rendering_complete_semaphore],
+                    |device, draw_command_buffer| {
+                        device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
+                        device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline_layout, 0, &descriptor_sets, &[]);
+                        device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, gfx_pipeline);
+                        device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
+                        device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
+                        device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[vb.buffer], &[0]);
+                        device.cmd_bind_index_buffer(draw_command_buffer, ib.buffer, 0, vk::IndexType::UINT32);
+                        device.cmd_draw_indexed(draw_command_buffer, ib.count as u32, 1, 0, 0, 1);
+                        device.cmd_end_render_pass(draw_command_buffer);
+                    }
+                );
 
-            let wait_semaphores = [demo.rendering_complete_semaphore];
-            let swapchains = [demo.swapchain];
-            let image_indices = [present_idx];
-            let present_info = vk::PresentInfoKHR::builder()
-                .wait_semaphores(&wait_semaphores)
-                .swapchains(&swapchains)
-                .image_indices(&image_indices);
-            demo.swapchain_loader.queue_present(demo.present_queue, &present_info)
-                .unwrap();
-        });
+                let wait_semaphores = [demo.rendering_complete_semaphore];
+                let swapchains = [demo.swapchain];
+                let image_indices = [present_idx];
+                let present_info = vk::PresentInfoKHR::builder()
+                    .wait_semaphores(&wait_semaphores)
+                    .swapchains(&swapchains)
+                    .image_indices(&image_indices);
+                demo.swapchain_loader.queue_present(demo.present_queue, &present_info)
+                    .unwrap();
+                demo.frame_time = std::time::SystemTime::now()
+                    .duration_since(demo.frame_start)
+                    .unwrap()
+                    .as_millis() as f32;
+            }
+        );
 
         demo.device.device_wait_idle().unwrap();
         for pipeline in gfx_pipelines {

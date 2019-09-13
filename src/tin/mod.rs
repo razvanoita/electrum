@@ -14,6 +14,7 @@ use std::default::Default;
 use std::ffi::{CStr, CString};
 use std::ops::Drop;
 use std::os::raw::{c_char, c_void};
+use std::time::*;
 
 #[macro_export]
 macro_rules! offset_of {
@@ -134,15 +135,21 @@ pub fn find_memorytype_index(memory_req: &vk::MemoryRequirements, memory_prop: &
     })
 }
 
-pub struct DemoBase {
+pub struct DemoApp {
+    pub window: winit::Window,
+    pub events_loop: RefCell<winit::EventsLoop>,
+    pub app_name: CString,
+    pub window_width: u32,
+    pub window_height: u32,
+}
+
+pub struct DemoContext {
     pub entry: Entry,
     pub instance: Instance,
     pub device: Device,
     pub surface_loader: Surface,
     pub swapchain_loader: Swapchain,
     pub debug_report_loader: DebugReport,
-    pub window: winit::Window,
-    pub events_loop: RefCell<winit::EventsLoop>,
     pub debug_call_back: vk::DebugReportCallbackEXT,
 
     pub physical_device: vk::PhysicalDevice,
@@ -168,13 +175,17 @@ pub struct DemoBase {
 
     pub present_complete_semaphore: vk::Semaphore,
     pub rendering_complete_semaphore: vk::Semaphore,
+
+    pub frame_start: std::time::SystemTime,
+    pub frame_time: f32,
 }
 
-impl DemoBase {
-    pub fn render<F: Fn()>(&self, f: F) {
+impl DemoApp {
+    pub fn run<F: FnMut()>(&self, mut f: F) {
         use winit::*;
         self.events_loop.borrow_mut().run_forever(|event| {
             f();
+
             match event {
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::KeyboardInput { input, .. } => {
@@ -193,15 +204,26 @@ impl DemoBase {
     }
 
     pub fn new(width: u32, height: u32) -> Self {
+        let events_loop = winit::EventsLoop::new();
+        let window = winit::WindowBuilder::new()
+            .with_title("Electrum")
+            .with_dimensions(winit::dpi::LogicalSize::new(width as f64, height as f64))
+            .build(&events_loop)
+            .unwrap();
+        let app_name = CString::new("Electrum").unwrap();
+
+        DemoApp {
+            window: window,
+            events_loop: RefCell::new(events_loop),
+            app_name: app_name,
+            window_width: width,
+            window_height: height
+        }
+    }
+
+    pub fn build_ctx(&self) -> DemoContext {
         unsafe {
-            let events_loop = winit::EventsLoop::new();
-            let window = winit::WindowBuilder::new()
-                .with_title("Electrum")
-                .with_dimensions(winit::dpi::LogicalSize::new(width as f64, height as f64))
-                .build(&events_loop)
-                .unwrap();
             let entry = Entry::new().unwrap();
-            let app_name = CString::new("Electrum").unwrap();
 
             let layer_names = [CString::new("VK_LAYER_LUNARG_standard_validation").unwrap()];
             let layers_names_raw: Vec<*const i8> = layer_names.iter()
@@ -211,9 +233,9 @@ impl DemoBase {
             let extension_names_raw = extension_names();
 
             let appinfo = vk::ApplicationInfo::builder()
-                .application_name(&app_name)
+                .application_name(&self.app_name)
                 .application_version(0)
-                .engine_name(&app_name)
+                .engine_name(&self.app_name)
                 .engine_version(0)
                 .api_version(ash::vk_make_version!(1, 0, 0));
 
@@ -231,7 +253,7 @@ impl DemoBase {
 
             let debug_report_loader = DebugReport::new(&entry, &instance);
             let debug_call_back = debug_report_loader.create_debug_report_callback(&debug_info, None).unwrap();
-            let surface = create_surface(&entry, &instance, &window).unwrap();
+            let surface = create_surface(&entry, &instance, &self.window).unwrap();
             let physical_devices = instance.enumerate_physical_devices()
                 .expect("Failed to enumerate physical devices!");
             let surface_loader = Surface::new(&entry, &instance);
@@ -303,8 +325,8 @@ impl DemoBase {
 
             let surface_resolution = match surface_capabilities.current_extent.width {
                 std::u32::MAX => vk::Extent2D {
-                    width: width,
-                    height: height,
+                    width: self.window_width,
+                    height: self.window_height,
                 },
                 _ => surface_capabilities.current_extent,
             };
@@ -463,15 +485,13 @@ impl DemoBase {
             let rendering_complete_semaphore = device.create_semaphore(&semaphore_create_info, None)
                 .unwrap();
 
-            DemoBase {
-                events_loop: RefCell::new(events_loop),
+            DemoContext {
                 entry: entry,
                 instance: instance,
                 device: device,
                 queue_family_index: queue_family_index,
                 physical_device: physical_device,
                 device_memory_properties: device_memory_properties,
-                window: window,
                 surface_loader: surface_loader,
                 surface_format: surface_format,
                 present_queue: present_queue,
@@ -491,10 +511,14 @@ impl DemoBase {
                 debug_call_back: debug_call_back,
                 debug_report_loader: debug_report_loader,
                 depth_image_memory: depth_image_memory,
+                frame_start: std::time::SystemTime::now(),
+                frame_time: 1.0,
             }
         }
     }
+}
 
+impl DemoContext {
     pub fn get_and_begin_command_buffer(&self) -> vk::CommandBuffer {
         unsafe {
             let command_buffer_info = vk::CommandBufferAllocateInfo::builder()
@@ -535,7 +559,7 @@ impl DemoBase {
     }
 }
 
-impl Drop for DemoBase {
+impl Drop for DemoContext {
     fn drop(&mut self) {
         unsafe {
             self.device.device_wait_idle()
