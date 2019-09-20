@@ -19,10 +19,13 @@ use std::mem::align_of;
 use std::path::Path;
 use std::ops::Mul;
 
-#[derive(Clone, Debug, Copy)]
-struct UBO {
-    view_projection: cgmath::Matrix4<f32>,
-    world: cgmath::Matrix4<f32>
+struct ViewData {
+    projection: cgmath::Matrix4<f32>,
+    view: cgmath::Matrix4<f32>
+}
+
+struct InstanceData {
+    world: Box<cgmath::Matrix4<f32>>
 }
 
 fn main() {
@@ -205,16 +208,27 @@ fn main() {
         demo.device.bind_buffer_memory(ub.descriptor.buffer, ub.memory, 0)
             .unwrap();
         let ubo_desc_buffer_infos = [ub.descriptor];
-        let decriptor_set_layout_binding = vk::DescriptorSetLayoutBinding {
-            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: 1,
-            stage_flags: vk::ShaderStageFlags::VERTEX,
-            binding: 0,
-            ..Default::default()
-        };
+
+        // --- descriptor set layout
+        let decriptor_set_layout_bindings = [
+            vk::DescriptorSetLayoutBinding {
+                descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: 1,
+                stage_flags: vk::ShaderStageFlags::VERTEX,
+                binding: 0,
+                ..Default::default()
+            },
+            vk::DescriptorSetLayoutBinding {
+                descriptor_type: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+                descriptor_count: 1,
+                stage_flags: vk::ShaderStageFlags::VERTEX,
+                binding: 1,
+                ..Default::default()
+            }
+        ];
         let descriptor_set_layout_info = vk::DescriptorSetLayoutCreateInfo {
-            binding_count: 1,
-            p_bindings: &decriptor_set_layout_binding,
+            binding_count: decriptor_set_layout_bindings.len() as u32,
+            p_bindings: decriptor_set_layout_bindings.as_ptr(),
             ..Default::default()
         };
         let descriptor_set_layouts = [
@@ -386,14 +400,20 @@ fn main() {
         let gfx_pipeline = gfx_pipelines[0];
 
         // --- setup descriptor pool
-        let descriptor_pool_sizes = vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: 1
-        };
+        let descriptor_pool_sizes = [
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: 1
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+                descriptor_count: 1
+            }
+        ];
         let descriptor_pool_create_info = vk::DescriptorPoolCreateInfo {
-            pool_size_count: 1,
-            p_pool_sizes: &descriptor_pool_sizes,
-            max_sets: 1,
+            pool_size_count: descriptor_pool_sizes.len() as u32,
+            p_pool_sizes: descriptor_pool_sizes.as_ptr(),
+            max_sets: 2,
             ..Default::default()
         };
         let descriptor_pool = demo.device.create_descriptor_pool(&descriptor_pool_create_info, None)
@@ -408,12 +428,21 @@ fn main() {
         };
         let descriptor_sets =  demo.device.allocate_descriptor_sets(&descriptor_set_alloc_info)
             .unwrap();
-        let write_descriptor_set = vk::WriteDescriptorSet::builder()
-            .dst_binding(0)
-            .buffer_info(&ubo_desc_buffer_infos)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .dst_set(descriptor_sets[0]);
-        demo.device.update_descriptor_sets(&[write_descriptor_set.build()], &[]);
+        let write_descriptor_sets = [
+            vk::WriteDescriptorSet::builder()
+                .dst_binding(0)
+                .buffer_info(&ubo_desc_buffer_infos)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .dst_set(descriptor_sets[0])
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_binding(1)
+                .buffer_info(&ubo_desc_buffer_infos)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+                .dst_set(descriptor_sets[0])
+                .build()
+        ];
+        demo.device.update_descriptor_sets(write_descriptor_sets, &[]);
 
         demo_app.run(
             || {
