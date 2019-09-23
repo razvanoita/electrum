@@ -9,6 +9,7 @@ ash = "0.29.0"
 image = "0.20"
 winit = "0.18"
 cgmath = "0.17.0"
+rand = "0.7.2"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.4", features = ["windef", "winuser"] }

@@ -187,24 +187,20 @@ pub struct DemoContext {
 impl DemoApp {
     pub fn run<F: FnMut()>(&self, mut f: F) {
         use winit::*;
-        self.events_loop.borrow_mut().run_forever(|event| {
+
+        loop {
             f();
 
-            match event {
-                Event::WindowEvent { event, .. } => match event {
-                    WindowEvent::KeyboardInput { input, .. } => {
-                        if let Some(VirtualKeyCode::Escape) = input.virtual_keycode {
-                            ControlFlow::Break
-                        } else {
-                            ControlFlow::Continue
-                        }
-                    }
-                    WindowEvent::CloseRequested => winit::ControlFlow::Break,
-                    _ => ControlFlow::Continue,
-                },
-                _ => ControlFlow::Continue,
+            let mut done = false;
+            self.events_loop.borrow_mut().poll_events(|ev| {
+                if let Event::WindowEvent { event: WindowEvent::CloseRequested, .. } = ev {
+                    done = true
+                }
+            });
+            if done {
+                return;
             }
-        });
+        }
     }
 
     pub fn new(width: u32, height: u32) -> Self {

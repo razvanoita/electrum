@@ -18,17 +18,71 @@ use std::mem;
 use std::mem::align_of;
 use std::path::Path;
 use std::ops::Mul;
+use std::os::raw::c_void;
+use rand::Rng;
 
+#[derive(Debug, Clone, Copy)]
 struct ViewData {
     projection: cgmath::Matrix4<f32>,
     view: cgmath::Matrix4<f32>
 }
 
-struct InstanceData {
-    world: Align<cgmath::Matrix4<f32>>
+const NUM_OBJECTS: u32 = 1;
+
+fn update_non_dynamic_uniform_buffer(mapped_memory: *mut c_void, alignment: vk::DeviceSize, size: vk::DeviceSize, aspect_ratio: f32) {
+    // --- build data
+    let projection_matrix = cgmath::perspective(
+        cgmath::Rad::from(cgmath::Deg(60.0)), 
+        aspect_ratio, 
+        0.1, 
+        256.0
+    );
+    let view_matrix = cgmath::Matrix4::look_at(cgmath::Point3::new(0.0, 0.0, -5.0), cgmath::Point3::new(0.0, 0.0, 1.0), cgmath::Vector3::new(0.0, 1.0, 0.0));
+    let view_data = [
+        ViewData {
+            projection: projection_matrix,
+            view: view_matrix
+        }
+    ];
+    
+    unsafe {
+        // --- copy data to host mapped memory
+        let mut aligned_mapped_memory = Align::new(mapped_memory, alignment, size);
+        aligned_mapped_memory.copy_from_slice(&view_data);
+    }
 }
 
-const NUM_OBJECTS: u32 = 1;
+fn update_dynamic_uniform_buffer(
+    mapped_memory: *mut c_void,
+    alignment: vk::DeviceSize,
+    size: vk::DeviceSize,
+    dt: f32,
+    memory: vk::DeviceMemory,
+    device: &ash::Device,
+    rotation: &mut cgmath::Vector3<f32>,
+    rotation_speed: cgmath::Vector3<f32>
+) {
+    *rotation += rotation_speed * dt;
+
+    let instance_data = [
+        cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:1.0, y:0.0, z:0.0}, cgmath::Rad(rotation.x))
+            .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:1.0, z:0.0}, cgmath::Rad(rotation.y)))
+            .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:0.0, z:1.0}, cgmath::Rad(rotation.z)))
+            .mul(cgmath::Matrix4::from_translation(cgmath::Vector3{x:0.0, y:0.0, z:0.0}))
+    ];
+
+    unsafe {
+        let mut aligned_mapped_memory = Align::new(mapped_memory, alignment, size);
+        aligned_mapped_memory.copy_from_slice(&instance_data);
+
+        let memory_range = vk::MappedMemoryRange {
+            memory: memory,
+            size: size,
+            ..Default::default()
+        };
+        device.flush_mapped_memory_ranges(&[memory_range]);
+    }
+}
 
 fn main() {
     unsafe {
@@ -180,51 +234,68 @@ fn main() {
         vb_staging.destroy(&demo.device);        
         ib_staging.destroy(&demo.device);
 
-        // --- create uniform buffers
+        // --- create dynamic uniform buffer
         let min_ub_alignment = demo.instance.get_physical_device_properties(demo.physical_device).limits.min_uniform_buffer_offset_alignment;
-        let dynamic_alignment = std::mem::size_of::<cgmath::Matrix4<f32>>() as u64;
+        let mut dynamic_alignment = std::mem::size_of::<cgmath::Matrix4<f32>>() as u64;
         if (min_ub_alignment > 0) {
 			dynamic_alignment = (dynamic_alignment + min_ub_alignment - 1) & !(min_ub_alignment - 1);
 		}
         let ub_instance_data = pewter::UniformBuffer::construct(
             &demo.device, 
             &demo.device_memory_properties,
-            NUM_OBJECTS,
+            NUM_OBJECTS as u64,
             dynamic_alignment, 
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
         );
+        demo.device.bind_buffer_memory(ub_instance_data.descriptor.buffer, ub_instance_data.memory, 0)
+            .unwrap();
 
-        let projection_matrix = cgmath::perspective(
-            cgmath::Rad::from(cgmath::Deg(60.0)), 
-            demo.surface_resolution.width as f32 / demo.surface_resolution.height as f32, 
-            0.1, 
-            256.0
+        let ub_instance_data_ptr = demo.device.map_memory(ub_instance_data.memory, 0, ub_instance_data.descriptor.range, vk::MemoryMapFlags::empty())
+            .unwrap();
+        
+        let mut rng = rand::thread_rng();
+        let mut rotation = cgmath::Vector3 {
+            x: 0.4, //rng.gen_range(-1.0, 1.0),
+            y: 0.2, //rng.gen_range(-1.0, 1.0),
+            z: -0.5, //rng.gen_range(-1.0, 1.0)
+        } * 2.0 * 3.14;
+        let rotation_speed = cgmath::Vector3 {
+            x: 1.0,//rng.gen_range(-1.0, 1.0),
+            y: 1.0,//rng.gen_range(-1.0, 1.0),
+            z: 1.0,//rng.gen_range(-1.0, 1.0)
+        };
+        update_dynamic_uniform_buffer(
+            ub_instance_data_ptr,
+            dynamic_alignment, 
+            ub_instance_data.descriptor.range, 
+            0.33, 
+            ub_instance_data.memory, 
+            &demo.device,
+            &mut rotation,
+            rotation_speed
         );
-        let view_matrix = cgmath::Matrix4::look_at(cgmath::Point3::new(5.0, 1.0, -1.0), cgmath::Point3::new(0.0, 0.0, 1.0), cgmath::Vector3::new(0.0, 0.5, 0.5));
-        let view_data = [
-            ViewData {
-                projection: projection_matrix,
-                view: view_matrix
-            }
-        ];
+
+        // --- create non-dynamic uniform buffer
         let ub_view_data = pewter::UniformBuffer::construct(
             &demo.device, 
             &demo.device_memory_properties,
             1,
-            mem::size_of::<ViewData>(), 
+            mem::size_of::<ViewData>() as u64, 
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
         );
+        demo.device.bind_buffer_memory(ub_view_data.descriptor.buffer, ub_view_data.memory, 0)
+            .unwrap();
         
-        let ub_instance_data_ptr = demo.device.map_memory(ub_instance_data.memory, 0, ub_instance_data.descriptor.range, vk::MemoryMapFlags::empty())
+        let ub_view_data_ptr = demo.device.map_memory(ub_view_data.memory, 0, ub_view_data.descriptor.range, vk::MemoryMapFlags::empty())
             .unwrap();
-        let mut ub_aligned_instance_data_ptr = Align::new(ub_instance_data_ptr, dynamic_alignment, ub_instance_data_ptr.descriptor.range);
-        ub_aligned_instance_data_ptr.copy_from_slice(&objects_data);
-        demo.device.unmap_memory(ub.memory);
-        demo.device.bind_buffer_memory(ub.descriptor.buffer, ub.memory, 0)
-            .unwrap();
-        let ubo_desc_buffer_infos = [ub.descriptor];
+        update_non_dynamic_uniform_buffer(
+            ub_view_data_ptr, 
+            mem::size_of::<ViewData>() as u64, 
+            ub_view_data.descriptor.range, 
+            demo.surface_resolution.width as f32 / demo.surface_resolution.height as f32
+        );
 
         // --- descriptor set layout
         demo.setup_descriptor_set_layout();
@@ -400,13 +471,13 @@ fn main() {
         let write_descriptor_sets = [
             vk::WriteDescriptorSet::builder()
                 .dst_binding(0)
-                .buffer_info(&ubo_desc_buffer_infos)
+                .buffer_info(&[ub_view_data.descriptor])
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .dst_set(demo.descriptor_sets[0])
                 .build(),
             vk::WriteDescriptorSet::builder()
                 .dst_binding(1)
-                .buffer_info(&ubo_desc_buffer_infos)
+                .buffer_info(&[ub_instance_data.descriptor])
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
                 .dst_set(demo.descriptor_sets[0])
                 .build()
@@ -415,6 +486,17 @@ fn main() {
 
         demo_app.run(
             || {
+                update_dynamic_uniform_buffer(
+                    ub_instance_data_ptr, 
+                    dynamic_alignment, 
+                    ub_instance_data.descriptor.range, 
+                    demo.frame_time / 100.0, 
+                    ub_instance_data.memory, 
+                    &demo.device,
+                    &mut rotation,
+                    rotation_speed
+                );
+                
                 demo.frame_start = std::time::SystemTime::now();
                 let (present_idx, _) = demo.swapchain_loader.acquire_next_image(demo.swapchain, std::u64::MAX, demo.present_complete_semaphore, vk::Fence::null())
                     .unwrap();
@@ -442,7 +524,7 @@ fn main() {
                     &[demo.rendering_complete_semaphore],
                     |device, draw_command_buffer| {
                         device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
-                        device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline_layout, 0, &demo.descriptor_sets, &[]);
+                        device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline_layout, 0, &demo.descriptor_sets, &[0]);
                         device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, gfx_pipeline);
                         device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
@@ -469,6 +551,9 @@ fn main() {
             }
         );
 
+        demo.device.unmap_memory(ub_view_data.memory);
+        demo.device.unmap_memory(ub_instance_data.memory);
+
         demo.device.device_wait_idle().unwrap();
         for pipeline in gfx_pipelines {
             demo.device.destroy_pipeline(pipeline, None);
@@ -478,7 +563,8 @@ fn main() {
         demo.device.destroy_shader_module(fs_module, None);
         ib.destroy(&demo.device);
         vb.destroy(&demo.device);
-        ub.destroy(&demo.device);
+        ub_instance_data.destroy(&demo.device);
+        ub_view_data.destroy(&demo.device);
         for framebuffer in framebuffers {
             demo.device.destroy_framebuffer(framebuffer, None);
         }
