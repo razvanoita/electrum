@@ -178,6 +178,10 @@ pub struct DemoContext {
 
     pub frame_start: std::time::SystemTime,
     pub frame_time: f32,
+
+    pub descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
+    pub descriptor_pool: vk::DescriptorPool,
+    pub descriptor_sets: Vec<vk::DescriptorSet>,
 }
 
 impl DemoApp {
@@ -513,6 +517,9 @@ impl DemoApp {
                 depth_image_memory: depth_image_memory,
                 frame_start: std::time::SystemTime::now(),
                 frame_time: 1.0,
+                descriptor_set_layouts: Vec::default(),
+                descriptor_pool: vk::DescriptorPool::null(),
+                descriptor_sets: Vec::default()
             }
         }
     }
@@ -557,11 +564,82 @@ impl DemoContext {
             self.device.destroy_fence(submit_fence, None);
         }
     }
+
+    pub fn setup_descriptor_set_layout(&mut self) {
+        unsafe {
+            let decriptor_set_layout_bindings = [
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::VERTEX,
+                    binding: 0,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::VERTEX,
+                    binding: 1,
+                    ..Default::default()
+                }
+            ];
+            let descriptor_set_layout_info = vk::DescriptorSetLayoutCreateInfo {
+                binding_count: decriptor_set_layout_bindings.len() as u32,
+                p_bindings: decriptor_set_layout_bindings.as_ptr(),
+                ..Default::default()
+            };
+            self.descriptor_set_layouts = vec![
+                self.device.create_descriptor_set_layout(&descriptor_set_layout_info, None)
+                    .unwrap()
+            ];
+        }
+    }
+
+    pub fn setup_descriptor_pool(&mut self) {
+        unsafe {
+            let descriptor_pool_sizes = [
+                vk::DescriptorPoolSize {
+                    ty: vk::DescriptorType::UNIFORM_BUFFER,
+                    descriptor_count: 1
+                },
+                vk::DescriptorPoolSize {
+                    ty: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+                    descriptor_count: 1
+                }
+            ];
+            let descriptor_pool_create_info = vk::DescriptorPoolCreateInfo {
+                pool_size_count: descriptor_pool_sizes.len() as u32,
+                p_pool_sizes: descriptor_pool_sizes.as_ptr(),
+                max_sets: 2,
+                ..Default::default()
+            };
+            self.descriptor_pool = self.device.create_descriptor_pool(&descriptor_pool_create_info, None)
+                .unwrap();
+        }
+    }
+
+    pub fn setup_descriptor_sets(&mut self) {
+        unsafe {
+            let descriptor_set_alloc_info =  vk::DescriptorSetAllocateInfo {
+                descriptor_pool: self.descriptor_pool,
+                descriptor_set_count: 1,
+                p_set_layouts: self.descriptor_set_layouts.as_ptr(),
+                ..Default::default()
+            };
+            self.descriptor_sets = self.device.allocate_descriptor_sets(&descriptor_set_alloc_info)
+                .unwrap();
+        }
+    }
 }
 
 impl Drop for DemoContext {
     fn drop(&mut self) {
         unsafe {
+            for layout in self.descriptor_set_layouts.iter() {
+                self.device.destroy_descriptor_set_layout(*layout, None);
+            }
+            self.device.destroy_descriptor_pool(self.descriptor_pool, None);
+
             self.device.device_wait_idle()
                 .unwrap();
 

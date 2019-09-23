@@ -25,8 +25,10 @@ struct ViewData {
 }
 
 struct InstanceData {
-    world: Box<cgmath::Matrix4<f32>>
+    world: Align<cgmath::Matrix4<f32>>
 }
+
+const NUM_OBJECTS: u32 = 1;
 
 fn main() {
     unsafe {
@@ -178,7 +180,21 @@ fn main() {
         vb_staging.destroy(&demo.device);        
         ib_staging.destroy(&demo.device);
 
-        // --- create uniform buffer
+        // --- create uniform buffers
+        let min_ub_alignment = demo.instance.get_physical_device_properties(demo.physical_device).limits.min_uniform_buffer_offset_alignment;
+        let dynamic_alignment = std::mem::size_of::<cgmath::Matrix4<f32>>() as u64;
+        if (min_ub_alignment > 0) {
+			dynamic_alignment = (dynamic_alignment + min_ub_alignment - 1) & !(min_ub_alignment - 1);
+		}
+        let ub_instance_data = pewter::UniformBuffer::construct(
+            &demo.device, 
+            &demo.device_memory_properties,
+            NUM_OBJECTS,
+            dynamic_alignment, 
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
+        );
+
         let projection_matrix = cgmath::perspective(
             cgmath::Rad::from(cgmath::Deg(60.0)), 
             demo.surface_resolution.width as f32 / demo.surface_resolution.height as f32, 
@@ -186,55 +202,32 @@ fn main() {
             256.0
         );
         let view_matrix = cgmath::Matrix4::look_at(cgmath::Point3::new(5.0, 1.0, -1.0), cgmath::Point3::new(0.0, 0.0, 1.0), cgmath::Vector3::new(0.0, 0.5, 0.5));
-        let ubo_data = [
-            UBO {
-                view_projection: projection_matrix.mul(view_matrix),
-                world: cgmath::Matrix4::from_translation(cgmath::Vector3::new(0.0, 0.0, 1.0))
+        let view_data = [
+            ViewData {
+                projection: projection_matrix,
+                view: view_matrix
             }
         ];
-        let ub = pewter::UniformBuffer::construct(
+        let ub_view_data = pewter::UniformBuffer::construct(
             &demo.device, 
             &demo.device_memory_properties,
             1,
-            std::mem::size_of::<UBO>() as u64, 
+            mem::size_of::<ViewData>(), 
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
         );
-        let ub_ptr = demo.device.map_memory(ub.memory, 0, ub.descriptor.range, vk::MemoryMapFlags::empty())
+        
+        let ub_instance_data_ptr = demo.device.map_memory(ub_instance_data.memory, 0, ub_instance_data.descriptor.range, vk::MemoryMapFlags::empty())
             .unwrap();
-        let mut ub_aligned_ptr = Align::new(ub_ptr, align_of::<UBO>() as u64, ub.descriptor.range);
-        ub_aligned_ptr.copy_from_slice(&ubo_data);
+        let mut ub_aligned_instance_data_ptr = Align::new(ub_instance_data_ptr, dynamic_alignment, ub_instance_data_ptr.descriptor.range);
+        ub_aligned_instance_data_ptr.copy_from_slice(&objects_data);
         demo.device.unmap_memory(ub.memory);
         demo.device.bind_buffer_memory(ub.descriptor.buffer, ub.memory, 0)
             .unwrap();
         let ubo_desc_buffer_infos = [ub.descriptor];
 
         // --- descriptor set layout
-        let decriptor_set_layout_bindings = [
-            vk::DescriptorSetLayoutBinding {
-                descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                descriptor_count: 1,
-                stage_flags: vk::ShaderStageFlags::VERTEX,
-                binding: 0,
-                ..Default::default()
-            },
-            vk::DescriptorSetLayoutBinding {
-                descriptor_type: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
-                descriptor_count: 1,
-                stage_flags: vk::ShaderStageFlags::VERTEX,
-                binding: 1,
-                ..Default::default()
-            }
-        ];
-        let descriptor_set_layout_info = vk::DescriptorSetLayoutCreateInfo {
-            binding_count: decriptor_set_layout_bindings.len() as u32,
-            p_bindings: decriptor_set_layout_bindings.as_ptr(),
-            ..Default::default()
-        };
-        let descriptor_set_layouts = [
-            demo.device.create_descriptor_set_layout(&descriptor_set_layout_info, None)
-                .unwrap()
-        ];
+        demo.setup_descriptor_set_layout();
 
         // --- create shaders
         let mut vertex_spv_file = File::open(Path::new("copper/shaders/triangle_vert.spv"))
@@ -257,7 +250,7 @@ fn main() {
 
         let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo {
             set_layout_count: 1,
-            p_set_layouts: descriptor_set_layouts.as_ptr(),
+            p_set_layouts: demo.descriptor_set_layouts.as_ptr(),
             ..Default::default()
         };
         let pipeline_layout = demo.device.create_pipeline_layout(&pipeline_layout_create_info, None)
@@ -400,49 +393,25 @@ fn main() {
         let gfx_pipeline = gfx_pipelines[0];
 
         // --- setup descriptor pool
-        let descriptor_pool_sizes = [
-            vk::DescriptorPoolSize {
-                ty: vk::DescriptorType::UNIFORM_BUFFER,
-                descriptor_count: 1
-            },
-            vk::DescriptorPoolSize {
-                ty: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
-                descriptor_count: 1
-            }
-        ];
-        let descriptor_pool_create_info = vk::DescriptorPoolCreateInfo {
-            pool_size_count: descriptor_pool_sizes.len() as u32,
-            p_pool_sizes: descriptor_pool_sizes.as_ptr(),
-            max_sets: 2,
-            ..Default::default()
-        };
-        let descriptor_pool = demo.device.create_descriptor_pool(&descriptor_pool_create_info, None)
-            .unwrap();
+        demo.setup_descriptor_pool();
 
         // --- setup descriptor set
-        let descriptor_set_alloc_info =  vk::DescriptorSetAllocateInfo {
-            descriptor_pool: descriptor_pool,
-            descriptor_set_count: 1,
-            p_set_layouts: descriptor_set_layouts.as_ptr(),
-            ..Default::default()
-        };
-        let descriptor_sets =  demo.device.allocate_descriptor_sets(&descriptor_set_alloc_info)
-            .unwrap();
+        demo.setup_descriptor_sets();
         let write_descriptor_sets = [
             vk::WriteDescriptorSet::builder()
                 .dst_binding(0)
                 .buffer_info(&ubo_desc_buffer_infos)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .dst_set(descriptor_sets[0])
+                .dst_set(demo.descriptor_sets[0])
                 .build(),
             vk::WriteDescriptorSet::builder()
                 .dst_binding(1)
                 .buffer_info(&ubo_desc_buffer_infos)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-                .dst_set(descriptor_sets[0])
+                .dst_set(demo.descriptor_sets[0])
                 .build()
         ];
-        demo.device.update_descriptor_sets(write_descriptor_sets, &[]);
+        demo.device.update_descriptor_sets(&write_descriptor_sets, &[]);
 
         demo_app.run(
             || {
@@ -473,7 +442,7 @@ fn main() {
                     &[demo.rendering_complete_semaphore],
                     |device, draw_command_buffer| {
                         device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
-                        device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline_layout, 0, &descriptor_sets, &[]);
+                        device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline_layout, 0, &demo.descriptor_sets, &[]);
                         device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, gfx_pipeline);
                         device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
@@ -505,10 +474,6 @@ fn main() {
             demo.device.destroy_pipeline(pipeline, None);
         }
         demo.device.destroy_pipeline_layout(pipeline_layout, None);
-        demo.device.destroy_descriptor_pool(descriptor_pool, None);
-        for layout in descriptor_set_layouts.iter() {
-            demo.device.destroy_descriptor_set_layout(*layout, None);
-        }
         demo.device.destroy_shader_module(vs_module, None);
         demo.device.destroy_shader_module(fs_module, None);
         ib.destroy(&demo.device);
