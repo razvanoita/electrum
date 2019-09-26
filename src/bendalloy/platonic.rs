@@ -94,3 +94,79 @@ pub fn tetrahedron() -> GeometryData {
 
     data
 }
+
+pub fn cube() -> GeometryData {
+    let mut data = GeometryData {
+        vertices: Vec::default(),
+        indices: Vec::default()
+    };
+
+    let face_normals_and_tangents = vec![
+        (
+            cgmath::Vector3 { x: 0.0, y: 0.0, z: 1.0 },
+            cgmath::Vector3 { x: 0.0, y: 1.0, z: 0.0 }
+        ),
+        (
+            cgmath::Vector3 { x: 0.0, y: 0.0, z: -1.0 },
+            cgmath::Vector3 { x: 0.0, y: 1.0, z: 0.0 }
+        ),
+        (
+            cgmath::Vector3 { x: 1.0, y: 0.0, z: 0.0 },
+            cgmath::Vector3 { x: 0.0, y: 1.0, z: 0.0 }
+        ),
+        (
+            cgmath::Vector3 { x: -1.0, y: 0.0, z: 0.0 },
+            cgmath::Vector3 { x: 0.0, y: 1.0, z: 0.0 }
+        ),
+        (
+            cgmath::Vector3 { x: 0.0, y: 1.0, z: 0.0 },
+            cgmath::Vector3 { x: 0.0, y: 0.0, z: 1.0 }
+        ),
+        (
+            cgmath::Vector3 { x: 0.0, y: -1.0, z: 0.0 },
+            cgmath::Vector3 { x: 0.0, y: 0.0, z: 1.0 }
+        )
+    ];
+
+    let face_colors: Vec<[f32; 4]> = vec![
+        [1.0, 0.0, 0.0, 1.0],
+        [0.0, 1.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0, 1.0],
+        [1.0, 0.0, 1.0, 1.0],
+        [1.0, 1.0, 0.0, 1.0],
+        [0.0, 1.0, 1.0, 1.0]
+    ];
+
+    for (i, face) in face_normals_and_tangents.iter().enumerate() {
+        let (normal, tangent) = face;
+        let edge0 = normal.cross(*tangent);
+        let edge1 = normal.cross(edge0);
+
+        let base = data.vertices.len() as u32;
+        data.indices.push(base);
+        data.indices.push(base + 1);
+        data.indices.push(base + 2);
+        data.indices.push(base);
+        data.indices.push(base + 2);
+        data.indices.push(base + 3);
+
+        let vertex_positions = vec![
+            normal - edge0 - edge1,
+            normal - edge0 + edge1,
+            normal + edge0 + edge1,
+            normal + edge0 - edge1
+        ];
+
+        for j in 0..4 {
+            data.vertices.push(
+                Vertex {
+                    position: [vertex_positions[j].x, vertex_positions[j].y, vertex_positions[j].z, 1.0],
+                    normal: [normal.x, normal.y, normal.z, 0.0],
+                    color: face_colors[i as usize] 
+                }
+            );    
+        }
+    }
+
+    data
+}

@@ -256,14 +256,14 @@ fn main() {
         
         let mut rng = rand::thread_rng();
         let mut rotation = cgmath::Vector3 {
-            x: 0.4, //rng.gen_range(-1.0, 1.0),
-            y: 0.2, //rng.gen_range(-1.0, 1.0),
-            z: -0.5, //rng.gen_range(-1.0, 1.0)
+            x: rng.gen_range(-1.0, 1.0),
+            y: rng.gen_range(-1.0, 1.0),
+            z: rng.gen_range(-1.0, 1.0)
         } * 2.0 * 3.14;
         let rotation_speed = cgmath::Vector3 {
-            x: 1.0,//rng.gen_range(-1.0, 1.0),
-            y: 1.0,//rng.gen_range(-1.0, 1.0),
-            z: 1.0,//rng.gen_range(-1.0, 1.0)
+            x: 1.0,
+            y: 1.0,
+            z: 1.0
         };
         update_dynamic_uniform_buffer(
             ub_instance_data_ptr,
