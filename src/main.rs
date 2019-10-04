@@ -8,6 +8,8 @@ use cgmath::*;
 mod tin;
 mod pewter;
 mod bendalloy;
+mod aluminium;
+mod duralumin;
 
 use pewter::Buffer;
 
