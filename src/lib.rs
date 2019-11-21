@@ -6,3 +6,5 @@ extern crate rand;
 mod tin;
 mod pewter;
 mod bendalloy;
+mod aluminium;
+mod duralumin;

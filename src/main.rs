@@ -12,6 +12,7 @@ mod aluminium;
 mod duralumin;
 
 use pewter::Buffer;
+use aluminium::components;
 
 use std::default::Default;
 use std::ffi::CString;
@@ -87,6 +88,8 @@ fn update_dynamic_uniform_buffer(
 }
 
 fn main() {
+    let mut world = duralumin::World::new();
+    
     unsafe {
         let demo_app = tin::DemoApp::new(1920, 1080);
         let mut demo = demo_app.build_ctx();
@@ -163,78 +166,17 @@ fn main() {
             .collect();
         
         // --- draw a tetrahedron
-        let tetrahedron = bendalloy::platonic::tetrahedron();
-
-        // --- create vertex and index buffers using staging buffers
-        let vb_staging = pewter::VertexBuffer::construct(
-            &demo.device, 
-            &demo.device_memory_properties,
-            tetrahedron.vertices.len() as u64,
-            std::mem::size_of::<bendalloy::platonic::Vertex>() as u64,
-            vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
-        );
-        let vb_staging_ptr = demo.device.map_memory(vb_staging.memory, 0, vb_staging.size, vk::MemoryMapFlags::empty())
-            .unwrap();
-        let mut vb_staging_aligned_ptr = Align::new(vb_staging_ptr, align_of::<bendalloy::platonic::Vertex>() as u64, vb_staging.size);
-        vb_staging_aligned_ptr.copy_from_slice(&tetrahedron.vertices);
-        demo.device.unmap_memory(vb_staging.memory);
-        demo.device.bind_buffer_memory(vb_staging.buffer, vb_staging.memory, 0)
-            .unwrap();
-
-        let vb = pewter::VertexBuffer::construct(
-            &demo.device, 
-            &demo.device_memory_properties,
-            tetrahedron.vertices.len() as u64,
-            std::mem::size_of::<bendalloy::platonic::Vertex>() as u64,
-            vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL
-        );
-        demo.device.bind_buffer_memory(vb.buffer, vb.memory, 0)
-            .unwrap();
-        
-        let ib_staging = pewter::IndexBuffer::construct(
-            &demo.device, 
-            &demo.device_memory_properties,  
-            tetrahedron.indices.len() as u64,
-            mem::size_of::<u32>() as u64,
-            vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
-        );
-        let ib_staging_ptr = demo.device.map_memory(ib_staging.memory, 0, ib_staging.count * ib_staging.stride, vk::MemoryMapFlags::empty())
-            .unwrap();
-        let mut ib_staging_aligned_ptr = Align::new(ib_staging_ptr, align_of::<u32>() as u64, ib_staging.count * ib_staging.stride);
-        ib_staging_aligned_ptr.copy_from_slice(&tetrahedron.indices);
-        demo.device.unmap_memory(ib_staging.memory);
-        demo.device.bind_buffer_memory(ib_staging.buffer, ib_staging.memory, 0)
-            .unwrap();
-
-        let ib = pewter::IndexBuffer::construct(
-            &demo.device, 
-            &demo.device_memory_properties,  
-            tetrahedron.indices.len() as u64,
-            mem::size_of::<u32>() as u64,
-            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL
-        );
-        demo.device.bind_buffer_memory(ib.buffer, ib.memory, 0)
-            .unwrap();
-
         let copy_command_buffer = demo.get_and_begin_command_buffer();
+        let tetrahedron_mesh = bendalloy::mesh(bendalloy::platonic::tetrahedron(), &demo.device, &demo.device_memory_properties, copy_command_buffer, demo.present_queue);
 
-        let copy_region_vb = vk::BufferCopy::builder()
-            .size(vb_staging.size)
+        let tetrahedron = world.create_entity()
+            .with_component(components::Component::TransformComponent(components::Transform {
+                position: cgmath::Vector3{x:0.0, y:0.0, z:0.0},
+                rotation: cgmath::Vector3{x:0.0, y:0.0, z:0.0},
+                scale: cgmath::Vector3{x:1.0, y:1.0, z:1.0}
+            }))
+            .with_component(components::Component::MeshComponent(tetrahedron_mesh))
             .build();
-        demo.device.cmd_copy_buffer(copy_command_buffer, vb_staging.buffer, vb.buffer, &[copy_region_vb]);
-        let copy_region_ib = vk::BufferCopy::builder()
-            .size(ib_staging.count * ib_staging.stride)
-            .build();
-        demo.device.cmd_copy_buffer(copy_command_buffer, ib_staging.buffer, ib.buffer, &[copy_region_ib]);
-
-        demo.end_and_submit_command_buffer(copy_command_buffer);
-
-        vb_staging.destroy(&demo.device);        
-        ib_staging.destroy(&demo.device);
 
         // --- create dynamic uniform buffer
         let min_ub_alignment = demo.instance.get_physical_device_properties(demo.physical_device).limits.min_uniform_buffer_offset_alignment;
@@ -530,9 +472,9 @@ fn main() {
                         device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, gfx_pipeline);
                         device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                        device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[vb.buffer], &[0]);
-                        device.cmd_bind_index_buffer(draw_command_buffer, ib.buffer, 0, vk::IndexType::UINT32);
-                        device.cmd_draw_indexed(draw_command_buffer, ib.count as u32, 1, 0, 0, 1);
+                        //device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[vb.buffer], &[0]);
+                        //device.cmd_bind_index_buffer(draw_command_buffer, ib.buffer, 0, vk::IndexType::UINT32);
+                        //device.cmd_draw_indexed(draw_command_buffer, ib.count as u32, 1, 0, 0, 1);
                         device.cmd_end_render_pass(draw_command_buffer);
                     }
                 );
@@ -563,8 +505,8 @@ fn main() {
         demo.device.destroy_pipeline_layout(pipeline_layout, None);
         demo.device.destroy_shader_module(vs_module, None);
         demo.device.destroy_shader_module(fs_module, None);
-        ib.destroy(&demo.device);
-        vb.destroy(&demo.device);
+        //ib.destroy(&demo.device);
+        //vb.destroy(&demo.device);
         ub_instance_data.destroy(&demo.device);
         ub_view_data.destroy(&demo.device);
         for framebuffer in framebuffers {

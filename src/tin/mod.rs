@@ -541,26 +541,6 @@ impl DemoContext {
         }
     }
 
-    pub fn end_and_submit_command_buffer(&self, command_buffer: vk::CommandBuffer) {
-        unsafe {
-            self.device.end_command_buffer(command_buffer)
-                .expect("Failed to end command buffer!");
-
-            let submit_fence = self.device.create_fence(&vk::FenceCreateInfo::default(), None)
-                .expect("Failed to create fence!");
-            let command_buffers = vec![command_buffer];
-            let submit_info = vk::SubmitInfo::builder()
-                .command_buffers(&command_buffers);
-
-            self.device.queue_submit(self.present_queue, &[submit_info.build()], submit_fence)
-                .expect("Failed to submit queue!");
-
-            self.device.wait_for_fences(&[submit_fence], true, std::u64::MAX)
-                .expect("Failed to wait for fence!");
-            self.device.destroy_fence(submit_fence, None);
-        }
-    }
-
     pub fn setup_descriptor_set_layout(&mut self) {
         unsafe {
             let decriptor_set_layout_bindings = [
@@ -656,5 +636,25 @@ impl Drop for DemoContext {
             self.debug_report_loader.destroy_debug_report_callback(self.debug_call_back, None);
             self.instance.destroy_instance(None);
         }
+    }
+}
+
+pub fn end_and_submit_command_buffer(device: &ash::Device, present_queue: vk::Queue, command_buffer: vk::CommandBuffer) {
+    unsafe {
+        device.end_command_buffer(command_buffer)
+            .expect("Failed to end command buffer!");
+
+        let submit_fence = device.create_fence(&vk::FenceCreateInfo::default(), None)
+            .expect("Failed to create fence!");
+        let command_buffers = vec![command_buffer];
+        let submit_info = vk::SubmitInfo::builder()
+            .command_buffers(&command_buffers);
+
+        device.queue_submit(present_queue, &[submit_info.build()], submit_fence)
+            .expect("Failed to submit queue!");
+
+        device.wait_for_fences(&[submit_fence], true, std::u64::MAX)
+            .expect("Failed to wait for fence!");
+        device.destroy_fence(submit_fence, None);
     }
 }

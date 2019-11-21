@@ -1,26 +1,28 @@
 use cgmath::*;
 
-#[derive(PartialEq, Eq, Hash)]
-pub enum ComponentType {
-    Transform,
-    Mesh,
-    Renderable,
-}
+use crate::pewter;
 
-pub trait Component {
-    fn get_type(&self) -> ComponentType;
-}
-
-#[derive(Clone, Debug, Copy)]
 pub struct Transform {
-    position: cgmath::Vector3<f32>,
-    rotation: cgmath::Vector3<f32>,
-    scale: cgmath::Vector3<f32>,
+    pub position: cgmath::Vector3<f32>,
+    pub rotation: cgmath::Vector3<f32>,
+    pub scale: cgmath::Vector3<f32>,
 }
 
-impl Component for Transform {
-    fn get_type(&self) -> ComponentType {
-        ComponentType::Transform
-    }
+pub struct Mesh {
+    pub vertex_buffer: pewter::VertexBuffer,
+    pub index_buffer: pewter::IndexBuffer,
 }
+
+pub enum Component {
+    TransformComponent(Transform),
+    MeshComponent(Mesh),
+}
+
+pub enum ComponentMask {
+    TransformComponent = 0b0000_0000_0000_0001,
+    MeshComponent = 0b0000_0000_0000_0010
+}
+
+pub type TransformStorage = Vec<Option<Transform>>;
+pub type MeshStorage = Vec<Option<Mesh>>;
 
