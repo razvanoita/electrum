@@ -6,22 +6,21 @@ use crate::aluminium::components;
 
 type Entity = usize;
 
+type Storage = Vec<(Option<components::Component>, Entity)>;
+
 pub struct World {
     pending_mask: Option<u32>,
     pending_components: Vec<components::Component>,
 
-    transform_components: HashMap<u32, components::TransformStorage>,
-    mesh_components: HashMap<u32, components::MeshStorage>,
+    components: HashMap<u32, Storage>,
 }
 
 impl World {
     pub fn new() -> World {
-        let free_entities = vec![0];
         World {
             pending_mask: None,
             pending_components: vec![],
-            transform_components: HashMap::new(),
-            mesh_components: HashMap::new()
+            components: HashMap::new(),
         }
     }
 
@@ -49,31 +48,27 @@ impl World {
         self
     }
 
-    pub fn build(&mut self) {
+    pub fn build(&mut self) -> Entity {
         assert_eq!(self.pending_mask.is_some(), true);
         assert_eq!(self.pending_components.is_empty(), false);
 
+        let num_components = self.pending_components.len();
+        let mut entity: Entity = 0;
         while !self.pending_components.is_empty() {
             let component = self.pending_components.pop().unwrap();
-            match component {
-                components::Component::TransformComponent(transform_component) => {
-                    let mut value = self.transform_components.get_mut(&self.pending_mask.unwrap());
-                    if value.is_some() {
-                        value.unwrap().push(Some(transform_component));
-                    } else {
-                        self.transform_components.insert(self.pending_mask.unwrap(), vec![Some(transform_component)]);
-                    }
-                },
-                components::Component::MeshComponent(mesh_component) => {
-                    let mut value = self.mesh_components.get_mut(&self.pending_mask.unwrap());
-                    if value.is_some() {
-                        value.unwrap().push(Some(mesh_component));
-                    } else {
-                        self.mesh_components.insert(self.pending_mask.unwrap(), vec![Some(mesh_component)]);
-                    }
-                },
-                _ => println!("not supported yet!")
+            let mut storage: Option<&mut Storage> = self.components.get_mut(&self.pending_mask.unwrap());
+            if storage.is_some() {
+                let mut storage_unwrapped: &mut Storage = storage.unwrap();
+                entity = (storage_unwrapped.len() / num_components) as usize;
+                storage_unwrapped.push((Some(component), entity));
+            } else {
+                self.components.insert(self.pending_mask.unwrap(), vec![(Some(component), 0)]);
             }
         }
+        entity
+    }
+
+    pub fn query(&self, mask: u32) {
+
     }
 }

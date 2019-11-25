@@ -23,6 +23,3 @@ pub enum ComponentMask {
     MeshComponent = 0b0000_0000_0000_0010
 }
 
-pub type TransformStorage = Vec<Option<Transform>>;
-pub type MeshStorage = Vec<Option<Mesh>>;
-
