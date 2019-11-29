@@ -18,8 +18,26 @@ pub enum Component {
     MeshComponent(Mesh),
 }
 
-pub enum ComponentMask {
+#[derive(Clone, Debug, Copy)]
+pub enum ComponentType {
     TransformComponent = 0b0000_0000_0000_0001,
     MeshComponent = 0b0000_0000_0000_0010
 }
 
+pub type Entity = u32;
+
+pub trait TypeWrapper {
+    fn get_type() -> ComponentType;
+}
+
+pub struct StorageEntry {
+    pub storage_type: u32,
+    pub entity: Entity,
+    pub component: Component,
+}
+
+impl TypeWrapper for StorageEntry {
+    fn get_type() -> ComponentType {
+        ComponentType::TransformComponent
+    }
+}
