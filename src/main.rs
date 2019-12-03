@@ -62,17 +62,14 @@ fn update_dynamic_uniform_buffer(
     dt: f32,
     memory: vk::DeviceMemory,
     device: &ash::Device,
-    rotation: &mut cgmath::Vector3<f32>,
-    rotation_speed: cgmath::Vector3<f32>
+    instance_data: Vec<cgmath::Matrix4<f32>>
 ) {
-    *rotation += rotation_speed * dt;
-
-    let instance_data = [
-        cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:1.0, y:0.0, z:0.0}, cgmath::Rad(rotation.x))
-            .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:1.0, z:0.0}, cgmath::Rad(rotation.y)))
-            .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:0.0, z:1.0}, cgmath::Rad(rotation.z)))
-            .mul(cgmath::Matrix4::from_translation(cgmath::Vector3{x:0.0, y:0.0, z:0.0}))
-    ];
+    // let instance_data = [
+    //     cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:1.0, y:0.0, z:0.0}, cgmath::Rad(/*rotation.x*/1.0))
+    //         .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:1.0, z:0.0}, cgmath::Rad(/*rotation.y*/1.0)))
+    //         .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:0.0, z:1.0}, cgmath::Rad(/*rotation.z*/1.0)))
+    //         .mul(cgmath::Matrix4::from_translation(cgmath::Vector3{x:0.0, y:0.0, z:0.0}))
+    // ];
 
     unsafe {
         let mut aligned_mapped_memory = Align::new(mapped_memory, alignment, size);
@@ -166,9 +163,8 @@ fn main() {
             .collect();
         
         // --- draw a tetrahedron
-        let copy_command_buffer = demo.get_and_begin_command_buffer();
-        let tetrahedron_mesh = bendalloy::mesh(bendalloy::platonic::tetrahedron(), &demo.device, &demo.device_memory_properties, copy_command_buffer, demo.present_queue);
-
+        let copy_command_buffer_0 = demo.get_and_begin_command_buffer();
+        let tetrahedron_mesh = bendalloy::mesh(bendalloy::platonic::tetrahedron(), &demo.device, &demo.device_memory_properties, copy_command_buffer_0, demo.present_queue);
         let tetrahedron = world.create_entity()
             .with_component(components::Component::TransformComponent(components::Transform {
                 position: cgmath::Vector3{x:0.0, y:0.0, z:0.0},
@@ -176,6 +172,25 @@ fn main() {
                 scale: cgmath::Vector3{x:1.0, y:1.0, z:1.0}
             }))
             .with_component(components::Component::MeshComponent(tetrahedron_mesh))
+            .with_component(components::Component::VelocityComponent(components::Velocity {
+                translation_speed: 1.0,
+                rotation_speed: 1.0
+            }))
+            .build();
+
+        let copy_command_buffer_1 = demo.get_and_begin_command_buffer();
+        let cube_mesh = bendalloy::mesh(bendalloy::platonic::cube(), &demo.device, &demo.device_memory_properties, copy_command_buffer_1, demo.present_queue);
+        let cube = world.create_entity()
+            .with_component(components::Component::TransformComponent(components::Transform {
+                position: cgmath::Vector3{x:3.0, y:0.0, z:0.0},
+                rotation: cgmath::Vector3{x:0.0, y:0.0, z:0.0},
+                scale: cgmath::Vector3{x:1.0, y:1.0, z:1.0}
+            }))
+            .with_component(components::Component::MeshComponent(cube_mesh))
+            .with_component(components::Component::VelocityComponent(components::Velocity {
+                translation_speed: 1.0,
+                rotation_speed: 0.5
+            }))
             .build();
 
         // --- create dynamic uniform buffer
@@ -187,7 +202,7 @@ fn main() {
         let ub_instance_data = pewter::UniformBuffer::construct(
             &demo.device, 
             &demo.device_memory_properties,
-            NUM_OBJECTS as u64,
+            2 as u64,
             dynamic_alignment, 
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
@@ -199,26 +214,16 @@ fn main() {
             .unwrap();
         
         let mut rng = rand::thread_rng();
-        let mut rotation = cgmath::Vector3 {
-            x: rng.gen_range(-1.0, 1.0),
-            y: rng.gen_range(-1.0, 1.0),
-            z: rng.gen_range(-1.0, 1.0)
-        } * 2.0 * 3.14;
-        let rotation_speed = cgmath::Vector3 {
-            x: 1.0,
-            y: 1.0,
-            z: 1.0
-        };
-        update_dynamic_uniform_buffer(
-            ub_instance_data_ptr,
-            dynamic_alignment, 
-            ub_instance_data.descriptor.range, 
-            0.33, 
-            ub_instance_data.memory, 
-            &demo.device,
-            &mut rotation,
-            rotation_speed
-        );
+        let transform_filter = components::ComponentType::TransformComponent as u32;
+        world.transform_storage.iter_mut()
+            .filter(|entry| entry.storage_type & transform_filter == transform_filter)
+            .for_each(|entry| {
+                entry.component.rotation = cgmath::Vector3 {
+                    x: rng.gen_range(-1.0, 1.0),
+                    y: rng.gen_range(-1.0, 1.0),
+                    z: rng.gen_range(-1.0, 1.0)
+                } * 2.0 * 3.14;
+            });
 
         // --- create non-dynamic uniform buffer
         let ub_view_data = pewter::UniformBuffer::construct(
@@ -430,15 +435,39 @@ fn main() {
 
         demo_app.run(
             || {
+                let dt = demo.frame_time / 100.0;
+                let transform_velocity_filter = (components::ComponentType::TransformComponent as u32) | (components::ComponentType::VelocityComponent as u32);
+                world.velocity_storage.iter()
+                    .filter(|entry| entry.storage_type & transform_velocity_filter == transform_velocity_filter)
+                    .zip(
+                        world.transform_storage.iter_mut()
+                            .filter(|entry| entry.storage_type & transform_velocity_filter == transform_velocity_filter)
+                    )
+                    .for_each(|(velocity, transform)| {
+                        transform.component.rotation += cgmath::Vector3 {
+                            x: velocity.component.rotation_speed * dt,
+                            y: velocity.component.rotation_speed * dt,
+                            z: velocity.component.rotation_speed * dt
+                        };
+                    });
+
+                let instance_data: Vec<cgmath::Matrix4<f32>> = world.transform_storage.iter()
+                    .filter(|entry| entry.storage_type & transform_filter == transform_filter)
+                    .map(|entry| cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:1.0, y:0.0, z:0.0}, cgmath::Rad(entry.component.rotation.x))
+                                    .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:1.0, z:0.0}, cgmath::Rad(entry.component.rotation.y)))
+                                    .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:0.0, z:1.0}, cgmath::Rad(entry.component.rotation.z)))
+                                    .mul(cgmath::Matrix4::from_translation(entry.component.position))
+                    )
+                    .collect();
+
                 update_dynamic_uniform_buffer(
                     ub_instance_data_ptr, 
                     dynamic_alignment, 
                     ub_instance_data.descriptor.range, 
-                    demo.frame_time / 100.0, 
+                    dt, 
                     ub_instance_data.memory, 
                     &demo.device,
-                    &mut rotation,
-                    rotation_speed
+                    instance_data
                 );
                 
                 demo.frame_start = std::time::SystemTime::now();
@@ -468,13 +497,22 @@ fn main() {
                     &[demo.rendering_complete_semaphore],
                     |device, draw_command_buffer| {
                         device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
-                        device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline_layout, 0, &demo.descriptor_sets, &[0]);
                         device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, gfx_pipeline);
                         device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                        //device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[vb.buffer], &[0]);
-                        //device.cmd_bind_index_buffer(draw_command_buffer, ib.buffer, 0, vk::IndexType::UINT32);
-                        //device.cmd_draw_indexed(draw_command_buffer, ib.count as u32, 1, 0, 0, 1);
+
+                        let mesh_filter = components::ComponentType::MeshComponent as u32;
+                        let mut dynamic_offset = 0;
+                        world.mesh_storage.iter()
+                            .filter(|entry| entry.storage_type & mesh_filter == mesh_filter)
+                            .for_each(|entry| {
+                                device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline_layout, 0, &demo.descriptor_sets, &[dynamic_offset * dynamic_alignment as u32]);
+                                device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[entry.component.vertex_buffer.buffer], &[0]);
+                                device.cmd_bind_index_buffer(draw_command_buffer, entry.component.index_buffer.buffer, 0, vk::IndexType::UINT32);
+                                device.cmd_draw_indexed(draw_command_buffer, entry.component.index_buffer.count as u32, 1, 0, 0, 1);        
+                                dynamic_offset+=1;
+                            });
+
                         device.cmd_end_render_pass(draw_command_buffer);
                     }
                 );
@@ -505,8 +543,13 @@ fn main() {
         demo.device.destroy_pipeline_layout(pipeline_layout, None);
         demo.device.destroy_shader_module(vs_module, None);
         demo.device.destroy_shader_module(fs_module, None);
-        //ib.destroy(&demo.device);
-        //vb.destroy(&demo.device);
+        let mesh_filter = components::ComponentType::MeshComponent as u32;
+        world.mesh_storage.iter()
+            .filter(|entry| entry.storage_type & mesh_filter == mesh_filter)
+            .for_each(|entry| {
+                entry.component.index_buffer.destroy(&demo.device);
+                entry.component.vertex_buffer.destroy(&demo.device);    
+            });
         ub_instance_data.destroy(&demo.device);
         ub_view_data.destroy(&demo.device);
         for framebuffer in framebuffers {
