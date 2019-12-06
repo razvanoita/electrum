@@ -14,7 +14,8 @@ pub trait Buffer {
         count: u64, 
         stride: u64, 
         usage: vk::BufferUsageFlags,
-        mem_prop_flags: vk::MemoryPropertyFlags
+        mem_prop_flags: vk::MemoryPropertyFlags,
+        dynamic: bool
     ) -> Self;
 
     fn destroy(&self, device: &ash::Device);
@@ -76,7 +77,8 @@ impl Buffer for VertexBuffer {
         count: u64, 
         stride: u64, 
         usage: vk::BufferUsageFlags,
-        mem_prop_flags: vk::MemoryPropertyFlags
+        mem_prop_flags: vk::MemoryPropertyFlags,
+        dynamic: bool
     ) -> Self {
         let buffer = Self::construct_buffer(device, count * stride, usage);
         VertexBuffer {
@@ -109,7 +111,8 @@ impl Buffer for IndexBuffer {
         count: u64, 
         stride: u64, 
         usage: vk::BufferUsageFlags,
-        mem_prop_flags: vk::MemoryPropertyFlags
+        mem_prop_flags: vk::MemoryPropertyFlags,
+        dynamic: bool
     ) -> Self {
         let buffer = Self::construct_buffer(device, count * stride, usage);
         IndexBuffer {
@@ -132,7 +135,8 @@ impl Buffer for IndexBuffer {
 
 pub struct UniformBuffer {
     pub memory: vk::DeviceMemory,
-    pub descriptor: vk::DescriptorBufferInfo
+    pub descriptor: vk::DescriptorBufferInfo,
+    pub size: u64,
 }
 
 impl Buffer for UniformBuffer {
@@ -142,17 +146,19 @@ impl Buffer for UniformBuffer {
         count: u64, 
         stride: u64, 
         usage: vk::BufferUsageFlags,
-        mem_prop_flags: vk::MemoryPropertyFlags
+        mem_prop_flags: vk::MemoryPropertyFlags,
+        dynamic: bool
     ) -> Self {
         let buffer = Self::construct_buffer(device, count * stride, usage);
         let desc_buff_info = vk::DescriptorBufferInfo {
             buffer: buffer,
             offset: 0 as u64,
-            range: stride * count
+            range: if let false = dynamic { stride * count } else { stride }
         };
         UniformBuffer {
             memory: Self::allocate_memory(device, &desc_buff_info.buffer, mem_prop, mem_prop_flags),
-            descriptor: desc_buff_info
+            descriptor: desc_buff_info,
+            size: count * stride
         }
     }
 

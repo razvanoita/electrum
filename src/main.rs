@@ -30,8 +30,6 @@ struct ViewData {
     view: cgmath::Matrix4<f32>
 }
 
-const NUM_OBJECTS: u32 = 1;
-
 fn update_non_dynamic_uniform_buffer(mapped_memory: *mut c_void, alignment: vk::DeviceSize, size: vk::DeviceSize, aspect_ratio: f32) {
     // --- build data
     let projection_matrix = cgmath::perspective(
@@ -40,7 +38,7 @@ fn update_non_dynamic_uniform_buffer(mapped_memory: *mut c_void, alignment: vk::
         0.1, 
         256.0
     );
-    let view_matrix = cgmath::Matrix4::look_at(cgmath::Point3::new(0.0, 0.0, -5.0), cgmath::Point3::new(0.0, 0.0, 1.0), cgmath::Vector3::new(0.0, 1.0, 0.0));
+    let view_matrix = cgmath::Matrix4::look_at(cgmath::Point3::new(0.0, 0.0, -10.0), cgmath::Point3::new(0.0, 0.0, 5.0), cgmath::Vector3::new(0.0, 1.0, 0.0));
     let view_data = [
         ViewData {
             projection: projection_matrix,
@@ -64,13 +62,6 @@ fn update_dynamic_uniform_buffer(
     device: &ash::Device,
     instance_data: Vec<cgmath::Matrix4<f32>>
 ) {
-    // let instance_data = [
-    //     cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:1.0, y:0.0, z:0.0}, cgmath::Rad(/*rotation.x*/1.0))
-    //         .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:1.0, z:0.0}, cgmath::Rad(/*rotation.y*/1.0)))
-    //         .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:0.0, z:1.0}, cgmath::Rad(/*rotation.z*/1.0)))
-    //         .mul(cgmath::Matrix4::from_translation(cgmath::Vector3{x:0.0, y:0.0, z:0.0}))
-    // ];
-
     unsafe {
         let mut aligned_mapped_memory = Align::new(mapped_memory, alignment, size);
         aligned_mapped_memory.copy_from_slice(&instance_data);
@@ -205,12 +196,13 @@ fn main() {
             2 as u64,
             dynamic_alignment, 
             vk::BufferUsageFlags::UNIFORM_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            true
         );
         demo.device.bind_buffer_memory(ub_instance_data.descriptor.buffer, ub_instance_data.memory, 0)
             .unwrap();
 
-        let ub_instance_data_ptr = demo.device.map_memory(ub_instance_data.memory, 0, ub_instance_data.descriptor.range, vk::MemoryMapFlags::empty())
+        let ub_instance_data_ptr = demo.device.map_memory(ub_instance_data.memory, 0, ub_instance_data.size, vk::MemoryMapFlags::empty())
             .unwrap();
         
         let mut rng = rand::thread_rng();
@@ -232,7 +224,8 @@ fn main() {
             1,
             mem::size_of::<ViewData>() as u64, 
             vk::BufferUsageFlags::UNIFORM_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            false
         );
         demo.device.bind_buffer_memory(ub_view_data.descriptor.buffer, ub_view_data.memory, 0)
             .unwrap();
@@ -453,17 +446,17 @@ fn main() {
 
                 let instance_data: Vec<cgmath::Matrix4<f32>> = world.transform_storage.iter()
                     .filter(|entry| entry.storage_type & transform_filter == transform_filter)
-                    .map(|entry| cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:1.0, y:0.0, z:0.0}, cgmath::Rad(entry.component.rotation.x))
+                    .map(|entry| cgmath::Matrix4::from_translation(entry.component.position)
+                                    .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:1.0, y:0.0, z:0.0}, cgmath::Rad(entry.component.rotation.x)))
                                     .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:1.0, z:0.0}, cgmath::Rad(entry.component.rotation.y)))
                                     .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:0.0, z:1.0}, cgmath::Rad(entry.component.rotation.z)))
-                                    .mul(cgmath::Matrix4::from_translation(entry.component.position))
                     )
                     .collect();
 
                 update_dynamic_uniform_buffer(
                     ub_instance_data_ptr, 
                     dynamic_alignment, 
-                    ub_instance_data.descriptor.range, 
+                    ub_instance_data.descriptor.range * instance_data.len() as u64, 
                     dt, 
                     ub_instance_data.memory, 
                     &demo.device,

@@ -31,7 +31,8 @@ pub fn mesh(
             geometry.vertices.len() as u64,
             std::mem::size_of::<platonic::Vertex>() as u64,
             vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            false
         );
         let vb_staging_ptr = device.map_memory(vb_staging.memory, 0, vb_staging.size, vk::MemoryMapFlags::empty())
             .unwrap();
@@ -47,7 +48,8 @@ pub fn mesh(
             geometry.vertices.len() as u64,
             std::mem::size_of::<platonic::Vertex>() as u64,
             vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            false
         );
         device.bind_buffer_memory(vb.buffer, vb.memory, 0)
             .unwrap();
@@ -58,7 +60,8 @@ pub fn mesh(
             geometry.indices.len() as u64,
             mem::size_of::<u32>() as u64,
             vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            false
         );
         let ib_staging_ptr = device.map_memory(ib_staging.memory, 0, ib_staging.count * ib_staging.stride, vk::MemoryMapFlags::empty())
             .unwrap();
@@ -74,7 +77,8 @@ pub fn mesh(
             geometry.indices.len() as u64,
             mem::size_of::<u32>() as u64,
             vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            false
         );
         device.bind_buffer_memory(ib.buffer, ib.memory, 0)
             .unwrap();
