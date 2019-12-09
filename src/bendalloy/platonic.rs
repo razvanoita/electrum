@@ -14,6 +14,7 @@ pub struct GeometryData {
 }
 
 const SQRT_OF_2: f32 = 1.41421356237309504880;
+const SQRT_OF_3: f32 = 1.73205080757;
 const SQRT_OF_6: f32 = 2.44948974278317809820;
 
 pub fn tetrahedron() -> GeometryData {
@@ -166,6 +167,330 @@ pub fn cube() -> GeometryData {
                 }
             );    
         }
+    }
+
+    data
+}
+
+pub fn octahedron() -> GeometryData {
+    let mut data = GeometryData {
+        vertices: Vec::default(),
+        indices: Vec::default()
+    };
+
+    let vertex_data = vec![
+        cgmath::Vector3 {
+            x: 1.0f32,
+            y: 0.0,
+            z: 0.0
+        },
+        cgmath::Vector3 {
+            x: -1.0f32,
+            y: 0.0,
+            z: 0.0,
+        },
+        cgmath::Vector3 {
+            x: 0.0f32,
+            y: 1.0,
+            z: 0.0,
+        },
+        cgmath::Vector3 {
+            x: 0.0f32,
+            y: -1.0,
+            z: 0.0,
+        },
+        cgmath::Vector3 {
+            x: 0.0f32,
+            y: 0.0,
+            z: 1.0,
+        },
+        cgmath::Vector3 {
+            x: 0.0f32,
+            y: 0.0,
+            z: -1.0,
+        }
+    ];
+
+    let faces = vec![
+        [2u32, 0, 4],
+        [1u32, 2, 4],
+        [3u32, 1, 4],
+        [0u32, 3, 4],
+        [0u32, 2, 5],
+        [2u32, 1, 5],
+        [1u32, 3, 5],
+        [3u32, 0, 5]
+    ];
+
+    let face_colors: Vec<[f32; 4]> = vec![
+        [1.0, 0.0, 0.0, 1.0],
+        [0.0, 1.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0, 1.0],
+        [1.0, 0.0, 1.0, 1.0],
+        [1.0, 1.0, 0.0, 1.0],
+        [0.0, 1.0, 1.0, 1.0],
+        [1.0, 1.0, 1.0, 1.0],
+        [0.5, 0.0, 0.0, 1.0]
+    ];
+
+    for (i, face) in faces.iter().enumerate() {
+        let normal = (vertex_data[face[1] as usize] - vertex_data[face[0] as usize])
+            .cross(vertex_data[face[2] as usize] - vertex_data[face[0] as usize])
+            .normalize();
+        
+        let base = data.vertices.len() as u32;
+        data.indices.push(base);
+        data.indices.push(base + 1);
+        data.indices.push(base + 2);
+
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[0] as usize].x, vertex_data[face[0] as usize].y, vertex_data[face[0] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize] 
+            }
+        );
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[1] as usize].x, vertex_data[face[1] as usize].y, vertex_data[face[1] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize]
+            }
+        );
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[2] as usize].x, vertex_data[face[2] as usize].y, vertex_data[face[2] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize]
+            }
+        );
+    }
+
+    data
+}
+
+pub fn dodecahedron() -> GeometryData {
+    let a = 1.0 / SQRT_OF_3;
+    let b: f32 = 0.35682208977;
+    let c: f32 = 0.93417235896;
+
+    let mut data = GeometryData {
+        vertices: Vec::default(),
+        indices: Vec::default()
+    };
+
+    let vertex_data = vec![
+        cgmath::Vector3 { x: a, y: a, z: a },
+        cgmath::Vector3 { x: a, y: a, z: -a },
+        cgmath::Vector3 { x: a, y: -a, z: a },
+        cgmath::Vector3 { x: a, y: -a, z: -a },
+        cgmath::Vector3 { x: -a, y: a, z: a },
+        cgmath::Vector3 { x: -a, y: a, z: -a },
+        cgmath::Vector3 { x: -a, y: -a, z: a },
+        cgmath::Vector3 { x: -a, y: -a, z: -a },
+        cgmath::Vector3 { x: b, y: c, z: 0.0 },
+        cgmath::Vector3 { x: -b, y: c, z: 0.0 },
+        cgmath::Vector3 { x: b, y: -c, z: 0.0 },
+        cgmath::Vector3 { x: -b, y: -c, z: 0.0 },
+        cgmath::Vector3 { x: c, y: 0.0, z: b },
+        cgmath::Vector3 { x: c, y: 0.0, z: -b },
+        cgmath::Vector3 { x: -c, y: 0.0, z: b },
+        cgmath::Vector3 { x: -c, y: 0.0, z: -b },
+        cgmath::Vector3 { x: 0.0, y: b, z: c },
+        cgmath::Vector3 { x: 0.0, y: -b, z: c },
+        cgmath::Vector3 { x: 0.0, y: b, z: -c },
+        cgmath::Vector3 { x: 0.0, y: -b, z: -c },
+    ];
+
+    let faces: Vec<[u32; 5]> = vec![
+        [0, 8, 9, 4, 16],
+        [0, 16, 17, 2, 12],
+        [12, 2, 10, 3, 13],
+        [9, 5, 15, 14, 4],
+        [3, 19, 18, 1, 13],
+        [7, 11, 6, 14, 15],
+        [0, 12, 13, 1, 8],
+        [8, 1, 18, 5, 9],
+        [16, 4, 14, 6, 17],
+        [6, 11, 10, 2, 17],
+        [7, 15, 5, 18, 19],
+        [7, 19, 3, 10, 11],
+    ];
+
+    let face_colors: Vec<[f32; 4]> = vec![
+        [1.0, 0.0, 0.0, 1.0],
+        [0.0, 1.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0, 1.0],
+        [1.0, 0.0, 1.0, 1.0],
+        [1.0, 1.0, 0.0, 1.0],
+        [0.0, 1.0, 1.0, 1.0],
+        [1.0, 1.0, 1.0, 1.0],
+        [0.5, 0.0, 0.0, 1.0],
+        [0.0, 0.5, 0.0, 1.0],
+        [0.0, 0.0, 0.5, 1.0],
+        [0.5, 0.5, 0.0, 1.0],
+        [0.5, 0.0, 0.5, 1.0],
+    ];
+
+    for (i, face) in faces.iter().enumerate() {
+        let normal = (vertex_data[face[1] as usize] - vertex_data[face[0] as usize])
+            .cross(vertex_data[face[2] as usize] - vertex_data[face[0] as usize])
+            .normalize();
+        
+        let base = data.vertices.len() as u32;
+        data.indices.push(base + 2);
+        data.indices.push(base + 1);
+        data.indices.push(base);
+
+        data.indices.push(base + 3);
+        data.indices.push(base + 2);
+        data.indices.push(base);
+
+        data.indices.push(base + 4);
+        data.indices.push(base + 3);
+        data.indices.push(base);
+
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[0] as usize].x, vertex_data[face[0] as usize].y, vertex_data[face[0] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize] 
+            }
+        );
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[1] as usize].x, vertex_data[face[1] as usize].y, vertex_data[face[1] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize]
+            }
+        );
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[2] as usize].x, vertex_data[face[2] as usize].y, vertex_data[face[2] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize]
+            }
+        );
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[3] as usize].x, vertex_data[face[3] as usize].y, vertex_data[face[3] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize]
+            }
+        );
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[4] as usize].x, vertex_data[face[4] as usize].y, vertex_data[face[4] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize]
+            }
+        );
+    }
+
+    data
+}
+
+pub fn icosahedron() -> GeometryData {
+    let t0: f32 = 1.6180339887;
+    let t1: f32 = 1.5195449958;
+
+    let mut data = GeometryData {
+        vertices: Vec::default(),
+        indices: Vec::default()
+    };
+
+    let vertex_data = vec![
+        cgmath::Vector3 { x: t0 / t1, y: 1.0 / t1, z: 0.0 },
+        cgmath::Vector3 { x: -t0 / t1, y: 1.0 / t1, z: 0.0 },
+        cgmath::Vector3 { x: t0 / t1, y: -1.0 / t1, z: 0.0 },
+        cgmath::Vector3 { x: -t0 / t1, y: -1.0 / t1, z: -0.0 },
+        cgmath::Vector3 { x: 1.0 / t1, y: 0.0, z: t0 / t1 },
+        cgmath::Vector3 { x: 1.0 / t1, y: 0.0, z: -t0 / t1 },
+        cgmath::Vector3 { x: -1.0 / t1, y: 0.0, z: t0 / t1 },
+        cgmath::Vector3 { x: -1.0 / t1, y: 0.0, z: -t0 / t1 },
+        cgmath::Vector3 { x: 0.0, y: t0 / t1, z: 1.0 / t1 },
+        cgmath::Vector3 { x: 0.0, y: -t0 / t1, z: 1.0 / t1 },
+        cgmath::Vector3 { x: 0.0, y: t0 / t1, z: -1.0 / t1 },
+        cgmath::Vector3 { x: 0.0, y: -t0 / t1, z: -1.0 / t1 },
+    ];
+
+    let faces: Vec<[u32; 3]> = vec![
+        [0, 8, 4],
+        [0, 5, 10],
+        [2, 4, 9],
+        [2, 11, 5],
+        [1, 6, 8],
+        [1, 10, 7],
+        [3, 9, 6],
+        [3, 7, 11],
+        [0, 10, 8],
+        [1, 8, 10],
+        [2, 9, 11],
+        [3, 11, 9],
+        [4, 2, 0],
+        [5, 0, 2],
+        [6, 1, 3],
+        [7, 3, 1],
+        [8, 6, 4],
+        [9, 4, 6],
+        [10, 5, 7],
+        [11, 7, 5]
+    ];
+
+    let face_colors: Vec<[f32; 4]> = vec![
+        [1.0, 0.0, 0.0, 1.0],
+        [0.0, 1.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0, 1.0],
+        [1.0, 0.0, 1.0, 1.0],
+        [1.0, 1.0, 0.0, 1.0],
+        [0.0, 1.0, 1.0, 1.0],
+        [1.0, 1.0, 1.0, 1.0],
+        [0.5, 0.0, 0.0, 1.0],
+        [0.0, 0.5, 0.0, 1.0],
+        [0.0, 0.0, 0.5, 1.0],
+        [0.5, 0.5, 0.0, 1.0],
+        [0.0, 0.5, 0.5, 1.0],
+        [0.5, 0.0, 0.5, 1.0],
+        [0.5, 0.0, 1.0, 1.0],
+        [1.0, 0.0, 0.5, 1.0],
+        [0.5, 1.0, 0.0, 1.0],
+        [1.0, 0.5, 0.0, 1.0],
+        [0.0, 1.0, 0.5, 1.0],
+        [0.0, 0.5, 1.0, 1.0],
+        [0.5, 0.5, 0.5, 1.0],
+    ];
+
+    for (i, face) in faces.iter().enumerate() {
+        let normal = (vertex_data[face[1] as usize] - vertex_data[face[0] as usize])
+            .cross(vertex_data[face[2] as usize] - vertex_data[face[0] as usize])
+            .normalize();
+        
+        let base = data.vertices.len() as u32;
+        data.indices.push(base + 2);
+        data.indices.push(base + 1);
+        data.indices.push(base);
+
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[0] as usize].x, vertex_data[face[0] as usize].y, vertex_data[face[0] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize] 
+            }
+        );
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[1] as usize].x, vertex_data[face[1] as usize].y, vertex_data[face[1] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize]
+            }
+        );
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[2] as usize].x, vertex_data[face[2] as usize].y, vertex_data[face[2] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize]
+            }
+        );
     }
 
     data

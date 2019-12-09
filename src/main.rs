@@ -57,7 +57,6 @@ fn update_dynamic_uniform_buffer(
     mapped_memory: *mut c_void,
     alignment: vk::DeviceSize,
     size: vk::DeviceSize,
-    dt: f32,
     memory: vk::DeviceMemory,
     device: &ash::Device,
     instance_data: Vec<cgmath::Matrix4<f32>>
@@ -153,7 +152,7 @@ fn main() {
             })
             .collect();
         
-        // --- draw a tetrahedron
+        // --- draw platonic solids
         let copy_command_buffer_0 = demo.get_and_begin_command_buffer();
         let tetrahedron_mesh = bendalloy::mesh(bendalloy::platonic::tetrahedron(), &demo.device, &demo.device_memory_properties, copy_command_buffer_0, demo.present_queue);
         let tetrahedron = world.create_entity()
@@ -180,7 +179,52 @@ fn main() {
             .with_component(components::Component::MeshComponent(cube_mesh))
             .with_component(components::Component::VelocityComponent(components::Velocity {
                 translation_speed: 1.0,
-                rotation_speed: 0.5
+                rotation_speed: 1.0
+            }))
+            .build();
+
+        let copy_command_buffer_2 = demo.get_and_begin_command_buffer();
+        let octahedron_mesh = bendalloy::mesh(bendalloy::platonic::octahedron(), &demo.device, &demo.device_memory_properties, copy_command_buffer_2, demo.present_queue);
+        let octahedron = world.create_entity()
+            .with_component(components::Component::TransformComponent(components::Transform {
+                position: cgmath::Vector3{x:-3.0, y:0.0, z:0.0},
+                rotation: cgmath::Vector3{x:0.0, y:0.0, z:0.0},
+                scale: cgmath::Vector3{x:1.0, y:1.0, z:1.0}
+            }))
+            .with_component(components::Component::MeshComponent(octahedron_mesh))
+            .with_component(components::Component::VelocityComponent(components::Velocity {
+                translation_speed: 1.0,
+                rotation_speed: 2.0
+            }))
+            .build();
+
+        let copy_command_buffer_3 = demo.get_and_begin_command_buffer();
+        let dodecahedron_mesh = bendalloy::mesh(bendalloy::platonic::dodecahedron(), &demo.device, &demo.device_memory_properties, copy_command_buffer_3, demo.present_queue);
+        let dodecahedron = world.create_entity()
+            .with_component(components::Component::TransformComponent(components::Transform {
+                position: cgmath::Vector3{x:0.0, y:-3.0, z:0.0},
+                rotation: cgmath::Vector3{x:0.0, y:0.0, z:0.0},
+                scale: cgmath::Vector3{x:1.0, y:1.0, z:1.0}
+            }))
+            .with_component(components::Component::MeshComponent(dodecahedron_mesh))
+            .with_component(components::Component::VelocityComponent(components::Velocity {
+                translation_speed: 1.0,
+                rotation_speed: 1.5
+            }))
+            .build();
+
+        let copy_command_buffer_5 = demo.get_and_begin_command_buffer();
+        let icosahedron_mesh = bendalloy::mesh(bendalloy::platonic::icosahedron(), &demo.device, &demo.device_memory_properties, copy_command_buffer_5, demo.present_queue);
+        let icosahedron = world.create_entity()
+            .with_component(components::Component::TransformComponent(components::Transform {
+                position: cgmath::Vector3{x:0.0, y:3.0, z:0.0},
+                rotation: cgmath::Vector3{x:0.0, y:0.0, z:0.0},
+                scale: cgmath::Vector3{x:1.0, y:1.0, z:1.0}
+            }))
+            .with_component(components::Component::MeshComponent(icosahedron_mesh))
+            .with_component(components::Component::VelocityComponent(components::Velocity {
+                translation_speed: 1.0,
+                rotation_speed: 3.5
             }))
             .build();
 
@@ -193,7 +237,7 @@ fn main() {
         let ub_instance_data = pewter::UniformBuffer::construct(
             &demo.device, 
             &demo.device_memory_properties,
-            2 as u64,
+            5 as u64,
             dynamic_alignment, 
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
@@ -426,44 +470,58 @@ fn main() {
         ];
         demo.device.update_descriptor_sets(&write_descriptor_sets, &[]);
 
+        let dt: f32 = 1.0 / 60.0;
+        let mut current_time = std::time::SystemTime::now();
+        let mut accumulator: f32 = 0.0;
+
         demo_app.run(
             || {
-                let dt = demo.frame_time / 100.0;
-                let transform_velocity_filter = (components::ComponentType::TransformComponent as u32) | (components::ComponentType::VelocityComponent as u32);
-                world.velocity_storage.iter()
-                    .filter(|entry| entry.storage_type & transform_velocity_filter == transform_velocity_filter)
-                    .zip(
-                        world.transform_storage.iter_mut()
-                            .filter(|entry| entry.storage_type & transform_velocity_filter == transform_velocity_filter)
-                    )
-                    .for_each(|(velocity, transform)| {
-                        transform.component.rotation += cgmath::Vector3 {
-                            x: velocity.component.rotation_speed * dt,
-                            y: velocity.component.rotation_speed * dt,
-                            z: velocity.component.rotation_speed * dt
-                        };
-                    });
+                let new_time = std::time::SystemTime::now();
+                let mut frame_time = new_time
+                    .duration_since(current_time)
+                    .unwrap()
+                    .as_millis() as f32 / 1000.0;
+                current_time = new_time;
 
-                let instance_data: Vec<cgmath::Matrix4<f32>> = world.transform_storage.iter()
-                    .filter(|entry| entry.storage_type & transform_filter == transform_filter)
-                    .map(|entry| cgmath::Matrix4::from_translation(entry.component.position)
-                                    .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:1.0, y:0.0, z:0.0}, cgmath::Rad(entry.component.rotation.x)))
-                                    .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:1.0, z:0.0}, cgmath::Rad(entry.component.rotation.y)))
-                                    .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:0.0, z:1.0}, cgmath::Rad(entry.component.rotation.z)))
-                    )
-                    .collect();
+                accumulator += frame_time;
 
-                update_dynamic_uniform_buffer(
-                    ub_instance_data_ptr, 
-                    dynamic_alignment, 
-                    ub_instance_data.descriptor.range * instance_data.len() as u64, 
-                    dt, 
-                    ub_instance_data.memory, 
-                    &demo.device,
-                    instance_data
-                );
+                while (accumulator >= dt) {
+                    let transform_velocity_filter = (components::ComponentType::TransformComponent as u32) | (components::ComponentType::VelocityComponent as u32);
+                    world.velocity_storage.iter()
+                        .filter(|entry| entry.storage_type & transform_velocity_filter == transform_velocity_filter)
+                        .zip(
+                            world.transform_storage.iter_mut()
+                                .filter(|entry| entry.storage_type & transform_velocity_filter == transform_velocity_filter)
+                        )
+                        .for_each(|(velocity, transform)| {
+                            transform.component.rotation += cgmath::Vector3 {
+                                x: velocity.component.rotation_speed * dt,
+                                y: velocity.component.rotation_speed * dt,
+                                z: velocity.component.rotation_speed * dt
+                            };
+                        });
+
+                    let instance_data: Vec<cgmath::Matrix4<f32>> = world.transform_storage.iter()
+                        .filter(|entry| entry.storage_type & transform_filter == transform_filter)
+                        .map(|entry| cgmath::Matrix4::from_translation(entry.component.position)
+                                        .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:1.0, y:0.0, z:0.0}, cgmath::Rad(entry.component.rotation.x)))
+                                        .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:1.0, z:0.0}, cgmath::Rad(entry.component.rotation.y)))
+                                        .mul(cgmath::Matrix4::from_axis_angle(cgmath::Vector3{x:0.0, y:0.0, z:1.0}, cgmath::Rad(entry.component.rotation.z)))
+                        )
+                        .collect();
+
+                    update_dynamic_uniform_buffer(
+                        ub_instance_data_ptr, 
+                        dynamic_alignment, 
+                        ub_instance_data.descriptor.range * instance_data.len() as u64, 
+                        ub_instance_data.memory, 
+                        &demo.device,
+                        instance_data
+                    );
+
+                    accumulator -= dt;
+                }
                 
-                demo.frame_start = std::time::SystemTime::now();
                 let (present_idx, _) = demo.swapchain_loader.acquire_next_image(demo.swapchain, std::u64::MAX, demo.present_complete_semaphore, vk::Fence::null())
                     .unwrap();
                 let clear_values = [
@@ -519,10 +577,6 @@ fn main() {
                     .image_indices(&image_indices);
                 demo.swapchain_loader.queue_present(demo.present_queue, &present_info)
                     .unwrap();
-                demo.frame_time = std::time::SystemTime::now()
-                    .duration_since(demo.frame_start)
-                    .unwrap()
-                    .as_millis() as f32;
             }
         );
 

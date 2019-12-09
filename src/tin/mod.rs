@@ -176,9 +176,6 @@ pub struct DemoContext {
     pub present_complete_semaphore: vk::Semaphore,
     pub rendering_complete_semaphore: vk::Semaphore,
 
-    pub frame_start: std::time::SystemTime,
-    pub frame_time: f32,
-
     pub descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
@@ -343,8 +340,8 @@ impl DemoApp {
             let present_mode = present_modes
                 .iter()
                 .cloned()
-                .find(|&mode| mode == vk::PresentModeKHR::MAILBOX)
-                .unwrap_or(vk::PresentModeKHR::FIFO);
+                .find(|&mode| mode == vk::PresentModeKHR::FIFO)
+                .unwrap_or(vk::PresentModeKHR::MAILBOX);
 
             let swapchain_loader = Swapchain::new(&instance, &device);
             let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
@@ -511,8 +508,6 @@ impl DemoApp {
                 debug_call_back: debug_call_back,
                 debug_report_loader: debug_report_loader,
                 depth_image_memory: depth_image_memory,
-                frame_start: std::time::SystemTime::now(),
-                frame_time: 1.0,
                 descriptor_set_layouts: Vec::default(),
                 descriptor_pool: vk::DescriptorPool::null(),
                 descriptor_sets: Vec::default()
