@@ -313,9 +313,6 @@ fn main() {
         // --- descriptor set layout
         demo.setup_descriptor_set_layout();
 
-        let vs_module: vk::ShaderModule = *demo.shader_modules.get("copper/shaders/triangle_vert.spv").unwrap();
-        let fs_module: vk::ShaderModule = *demo.shader_modules.get("copper/shaders/triangle_frag.spv").unwrap();
-
         let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo {
             set_layout_count: 1,
             p_set_layouts: demo.descriptor_set_layouts.as_ptr(),
@@ -323,62 +320,6 @@ fn main() {
         };
         let pipeline_layout = demo.device.create_pipeline_layout(&pipeline_layout_create_info, None)
             .unwrap();
-        
-        let shader_entry_name = CString::new("main").unwrap();
-        let shader_stage_create_infos = [
-            vk::PipelineShaderStageCreateInfo {
-                module: vs_module,
-                p_name: shader_entry_name.as_ptr(),
-                stage: vk::ShaderStageFlags::VERTEX,
-                ..Default::default()
-            },
-            vk::PipelineShaderStageCreateInfo {
-                module: fs_module,
-                p_name: shader_entry_name.as_ptr(),
-                stage: vk::ShaderStageFlags::FRAGMENT,
-                ..Default::default()
-            }
-        ];
-
-        let vertex_input_binding_descs = [
-            vk::VertexInputBindingDescription {
-                binding: 0,
-                stride: mem::size_of::<bendalloy::platonic::Vertex>() as u32,
-                input_rate: vk::VertexInputRate::VERTEX
-            }
-        ];
-        let vertex_input_attribute_descs = [
-            vk::VertexInputAttributeDescription {
-                location: 0,
-                binding: 0, 
-                format: vk::Format::R32G32B32A32_SFLOAT,
-                offset: offset_of!(bendalloy::platonic::Vertex, position) as u32
-            },
-            vk::VertexInputAttributeDescription {
-                location: 1,
-                binding: 0,
-                format: vk::Format::R32G32B32A32_SFLOAT,
-                offset: offset_of!(bendalloy::platonic::Vertex, normal) as u32
-            },
-            vk::VertexInputAttributeDescription {
-                location: 2,
-                binding: 0,
-                format: vk::Format::R32G32B32A32_SFLOAT,
-                offset: offset_of!(bendalloy::platonic::Vertex, color) as u32
-            }
-        ];
-
-        let vertex_input_state_info = vk::PipelineVertexInputStateCreateInfo {
-            vertex_attribute_description_count: vertex_input_attribute_descs.len() as u32,
-            p_vertex_attribute_descriptions: vertex_input_attribute_descs.as_ptr(),
-            vertex_binding_description_count: vertex_input_binding_descs.len() as u32,
-            p_vertex_binding_descriptions: vertex_input_binding_descs.as_ptr(),
-            ..Default::default()
-        };
-        let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
-            topology: vk::PrimitiveTopology::TRIANGLE_LIST,
-            ..Default::default()
-        };
 
         let viewports = [
             vk::Viewport {
@@ -396,69 +337,20 @@ fn main() {
                 extent: demo.surface_resolution.clone()
             }
         ];
-        let viewport_state_info = vk::PipelineViewportStateCreateInfo::builder()
-            .scissors(&scissors)
-            .viewports(&viewports);
-        let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
-            front_face: vk::FrontFace::COUNTER_CLOCKWISE,
-            line_width: 1.0,
-            polygon_mode: vk::PolygonMode::FILL,
-            ..Default::default()
-        };
-        let multisample_state_info = vk::PipelineMultisampleStateCreateInfo {
-            rasterization_samples: vk::SampleCountFlags::TYPE_1,
-            ..Default::default()
-        };
-        let noop_stencil_state = vk::StencilOpState {
-            fail_op: vk::StencilOp::KEEP,
-            pass_op: vk::StencilOp::KEEP,
-            depth_fail_op: vk::StencilOp::KEEP,
-            compare_op: vk::CompareOp::ALWAYS,
-            ..Default::default()
-        };
-        let depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
-            depth_test_enable: 1,
-            depth_write_enable: 1,
-            depth_compare_op: vk::CompareOp::LESS_OR_EQUAL,
-            front: noop_stencil_state.clone(),
-            back: noop_stencil_state.clone(),
-            max_depth_bounds: 1.0,
-            ..Default::default()
-        };
-        let color_blend_attachment_states = [
-            vk::PipelineColorBlendAttachmentState {
-                blend_enable: 0,
-                src_color_blend_factor: vk::BlendFactor::SRC_COLOR,
-                dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_DST_COLOR,
-                color_blend_op: vk::BlendOp::ADD,
-                src_alpha_blend_factor: vk::BlendFactor::ZERO,
-                dst_alpha_blend_factor: vk::BlendFactor::ZERO,
-                alpha_blend_op: vk::BlendOp::ADD,
-                color_write_mask: vk::ColorComponentFlags::all(),
-            }
-        ];
-        let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
-            .logic_op(vk::LogicOp::CLEAR)
-            .attachments(&color_blend_attachment_states);
-        let dynamic_state = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
-        let dynamic_state_info = vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_state);
 
-        let gfx_pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
-            .stages(&shader_stage_create_infos)
-            .vertex_input_state(&vertex_input_state_info)
-            .input_assembly_state(&vertex_input_assembly_state_info)
-            .viewport_state(&viewport_state_info)
-            .rasterization_state(&rasterization_info)
-            .multisample_state(&multisample_state_info)
-            .depth_stencil_state(&depth_state_info)
-            .color_blend_state(&color_blend_state)
-            .dynamic_state(&dynamic_state_info)
-            .layout(pipeline_layout)
-            .render_pass(renderpass);
-
-        let gfx_pipelines = demo.device.create_graphics_pipelines(vk::PipelineCache::null(), &[gfx_pipeline_info.build()], None)
-            .expect("Failed to create graphics pipelines!");
-        let gfx_pipeline = gfx_pipelines[0];
+        let material_filter = components::ComponentType::MaterialComponent as u32;
+        world.material_storage.iter_mut()
+            .filter(|entry| entry.storage_type & material_filter == material_filter)
+            .for_each(|entry| {
+                entry.component.pso = demo.create_pso(
+                    entry.component.vertex_shader,
+                    entry.component.fragment_shader,
+                    renderpass,
+                    pipeline_layout,
+                    viewports,
+                    scissors
+                );
+            });
 
         // --- setup descriptor pool
         demo.setup_descriptor_pool();
@@ -559,19 +451,24 @@ fn main() {
                     &[demo.rendering_complete_semaphore],
                     |device, draw_command_buffer| {
                         device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
-                        device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, gfx_pipeline);
                         device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-
-                        let mesh_filter = components::ComponentType::MeshComponent as u32;
                         let mut dynamic_offset = 0;
+
+                        let mesh_material_filter = (components::ComponentType::MeshComponent as u32) | (components::ComponentType::MaterialComponent as u32);
                         world.mesh_storage.iter()
-                            .filter(|entry| entry.storage_type & mesh_filter == mesh_filter)
-                            .for_each(|entry| {
+                            .filter(|entry| entry.storage_type & mesh_material_filter == mesh_material_filter)
+                            .zip(
+                                world.material_storage.iter()
+                                    .filter(|entry| entry.storage_type & mesh_material_filter == mesh_material_filter)
+                            )
+                            .for_each(|(mesh, material)| {
+                                device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, material.component.pso);  
+
                                 device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline_layout, 0, &demo.descriptor_sets, &[dynamic_offset * dynamic_alignment as u32]);
-                                device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[entry.component.vertex_buffer.buffer], &[0]);
-                                device.cmd_bind_index_buffer(draw_command_buffer, entry.component.index_buffer.buffer, 0, vk::IndexType::UINT32);
-                                device.cmd_draw_indexed(draw_command_buffer, entry.component.index_buffer.count as u32, 1, 0, 0, 1);        
+                                device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[mesh.component.vertex_buffer.buffer], &[0]);
+                                device.cmd_bind_index_buffer(draw_command_buffer, mesh.component.index_buffer.buffer, 0, vk::IndexType::UINT32);
+                                device.cmd_draw_indexed(draw_command_buffer, mesh.component.index_buffer.count as u32, 1, 0, 0, 1);        
                                 dynamic_offset+=1;
                             });
 
@@ -595,12 +492,15 @@ fn main() {
         demo.device.unmap_memory(ub_instance_data.memory);
 
         demo.device.device_wait_idle().unwrap();
-        for pipeline in gfx_pipelines {
-            demo.device.destroy_pipeline(pipeline, None);
-        }
+
+        world.material_storage.iter()
+            .filter(|entry| entry.storage_type & material_filter == material_filter)
+            .for_each(|entry| {
+                demo.device.destroy_pipeline(entry.component.pso, None);
+            });
+
         demo.device.destroy_pipeline_layout(pipeline_layout, None);
-        demo.device.destroy_shader_module(vs_module, None);
-        demo.device.destroy_shader_module(fs_module, None);
+
         let mesh_filter = components::ComponentType::MeshComponent as u32;
         world.mesh_storage.iter()
             .filter(|entry| entry.storage_type & mesh_filter == mesh_filter)
@@ -608,6 +508,7 @@ fn main() {
                 entry.component.index_buffer.destroy(&demo.device);
                 entry.component.vertex_buffer.destroy(&demo.device);    
             });
+
         ub_instance_data.destroy(&demo.device);
         ub_view_data.destroy(&demo.device);
         for framebuffer in framebuffers {

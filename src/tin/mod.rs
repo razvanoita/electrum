@@ -4,6 +4,8 @@ use ash::extensions::{
     khr::{Surface, Swapchain},
 };
 
+use crate::bendalloy;
+
 use ash::extensions::khr::Win32Surface;
 
 pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
@@ -18,6 +20,7 @@ use std::time::*;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
+use std::mem;
 
 #[macro_export]
 macro_rules! offset_of {
@@ -183,7 +186,7 @@ pub struct DemoContext {
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
 
-    pub shader_modules: HashMap<String, vk::ShaderModule>,
+    shader_modules: HashMap<String, vk::ShaderModule>,
 }
 
 impl DemoApp {
@@ -627,11 +630,148 @@ impl DemoContext {
     pub fn get_shader_module(&self, shader_path: String) -> vk::ShaderModule {
         *self.shader_modules.get(&shader_path).unwrap()
     }
+
+    pub fn create_pso(
+        &self, 
+        vs_module: vk::ShaderModule, 
+        fs_module: vk::ShaderModule,
+        renderpass: vk::RenderPass,
+        pipeline_layout: vk::PipelineLayout,
+        viewports: [vk::Viewport;1],
+        scissors: [vk::Rect2D;1]
+    ) -> vk::Pipeline {
+        unsafe {
+            let shader_entry_name = CString::new("main").unwrap();
+            let shader_stage_create_infos = [
+                vk::PipelineShaderStageCreateInfo {
+                    module: vs_module,
+                    p_name: shader_entry_name.as_ptr(),
+                    stage: vk::ShaderStageFlags::VERTEX,
+                    ..Default::default()
+                },
+                vk::PipelineShaderStageCreateInfo {
+                    module: fs_module,
+                    p_name: shader_entry_name.as_ptr(),
+                    stage: vk::ShaderStageFlags::FRAGMENT,
+                    ..Default::default()
+                }
+            ];
+    
+            let vertex_input_binding_descs = [
+                vk::VertexInputBindingDescription {
+                    binding: 0,
+                    stride: mem::size_of::<bendalloy::platonic::Vertex>() as u32,
+                    input_rate: vk::VertexInputRate::VERTEX
+                }
+            ];
+            let vertex_input_attribute_descs = [
+                vk::VertexInputAttributeDescription {
+                    location: 0,
+                    binding: 0, 
+                    format: vk::Format::R32G32B32A32_SFLOAT,
+                    offset: offset_of!(bendalloy::platonic::Vertex, position) as u32
+                },
+                vk::VertexInputAttributeDescription {
+                    location: 1,
+                    binding: 0,
+                    format: vk::Format::R32G32B32A32_SFLOAT,
+                    offset: offset_of!(bendalloy::platonic::Vertex, normal) as u32
+                },
+                vk::VertexInputAttributeDescription {
+                    location: 2,
+                    binding: 0,
+                    format: vk::Format::R32G32B32A32_SFLOAT,
+                    offset: offset_of!(bendalloy::platonic::Vertex, color) as u32
+                }
+            ];
+    
+            let vertex_input_state_info = vk::PipelineVertexInputStateCreateInfo {
+                vertex_attribute_description_count: vertex_input_attribute_descs.len() as u32,
+                p_vertex_attribute_descriptions: vertex_input_attribute_descs.as_ptr(),
+                vertex_binding_description_count: vertex_input_binding_descs.len() as u32,
+                p_vertex_binding_descriptions: vertex_input_binding_descs.as_ptr(),
+                ..Default::default()
+            };
+            let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
+                topology: vk::PrimitiveTopology::TRIANGLE_LIST,
+                ..Default::default()
+            };
+    
+            let viewport_state_info = vk::PipelineViewportStateCreateInfo::builder()
+                .scissors(&scissors)
+                .viewports(&viewports);
+            let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
+                front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+                line_width: 1.0,
+                polygon_mode: vk::PolygonMode::FILL,
+                ..Default::default()
+            };
+            let multisample_state_info = vk::PipelineMultisampleStateCreateInfo {
+                rasterization_samples: vk::SampleCountFlags::TYPE_1,
+                ..Default::default()
+            };
+            let noop_stencil_state = vk::StencilOpState {
+                fail_op: vk::StencilOp::KEEP,
+                pass_op: vk::StencilOp::KEEP,
+                depth_fail_op: vk::StencilOp::KEEP,
+                compare_op: vk::CompareOp::ALWAYS,
+                ..Default::default()
+            };
+            let depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
+                depth_test_enable: 1,
+                depth_write_enable: 1,
+                depth_compare_op: vk::CompareOp::LESS_OR_EQUAL,
+                front: noop_stencil_state.clone(),
+                back: noop_stencil_state.clone(),
+                max_depth_bounds: 1.0,
+                ..Default::default()
+            };
+            let color_blend_attachment_states = [
+                vk::PipelineColorBlendAttachmentState {
+                    blend_enable: 0,
+                    src_color_blend_factor: vk::BlendFactor::SRC_COLOR,
+                    dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_DST_COLOR,
+                    color_blend_op: vk::BlendOp::ADD,
+                    src_alpha_blend_factor: vk::BlendFactor::ZERO,
+                    dst_alpha_blend_factor: vk::BlendFactor::ZERO,
+                    alpha_blend_op: vk::BlendOp::ADD,
+                    color_write_mask: vk::ColorComponentFlags::all(),
+                }
+            ];
+            let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
+                .logic_op(vk::LogicOp::CLEAR)
+                .attachments(&color_blend_attachment_states);
+            let dynamic_state = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+            let dynamic_state_info = vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_state);
+    
+            let gfx_pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
+                .stages(&shader_stage_create_infos)
+                .vertex_input_state(&vertex_input_state_info)
+                .input_assembly_state(&vertex_input_assembly_state_info)
+                .viewport_state(&viewport_state_info)
+                .rasterization_state(&rasterization_info)
+                .multisample_state(&multisample_state_info)
+                .depth_stencil_state(&depth_state_info)
+                .color_blend_state(&color_blend_state)
+                .dynamic_state(&dynamic_state_info)
+                .layout(pipeline_layout)
+                .render_pass(renderpass);
+    
+            let gfx_pipelines = self.device.create_graphics_pipelines(vk::PipelineCache::null(), &[gfx_pipeline_info.build()], None)
+                .expect("Failed to create graphics pipelines!");
+            let gfx_pipeline = gfx_pipelines[0];
+            gfx_pipeline
+        }
+    }
 }
 
 impl Drop for DemoContext {
     fn drop(&mut self) {
         unsafe {
+            self.shader_modules.iter().for_each(|(k, v)| {
+                self.device.destroy_shader_module(*v, None);
+            });
+
             for layout in self.descriptor_set_layouts.iter() {
                 self.device.destroy_descriptor_set_layout(*layout, None);
             }
