@@ -1,4 +1,3 @@
-#[macro_use]
 
 use ash::extensions::{
     ext::DebugReport,
@@ -9,12 +8,16 @@ use ash::extensions::khr::Win32Surface;
 
 pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::{vk, Device, Entry, Instance};
+use ash::util::*;
 use std::cell::RefCell;
 use std::default::Default;
 use std::ffi::{CStr, CString};
 use std::ops::Drop;
 use std::os::raw::{c_char, c_void};
 use std::time::*;
+use std::collections::HashMap;
+use std::fs::File;
+use std::path::Path;
 
 #[macro_export]
 macro_rules! offset_of {
@@ -179,6 +182,8 @@ pub struct DemoContext {
     pub descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
+
+    pub shader_modules: HashMap<String, vk::ShaderModule>,
 }
 
 impl DemoApp {
@@ -510,7 +515,8 @@ impl DemoApp {
                 depth_image_memory: depth_image_memory,
                 descriptor_set_layouts: Vec::default(),
                 descriptor_pool: vk::DescriptorPool::null(),
-                descriptor_sets: Vec::default()
+                descriptor_sets: Vec::default(),
+                shader_modules: HashMap::default()
             }
         }
     }
@@ -600,6 +606,26 @@ impl DemoContext {
             self.descriptor_sets = self.device.allocate_descriptor_sets(&descriptor_set_alloc_info)
                 .unwrap();
         }
+    }
+
+    pub fn add_shader(&mut self, shader_path: String) {
+        unsafe {
+            let mut spv_file = File::open(Path::new(&shader_path))
+                .expect("Could not find vertex .spv file!");
+
+            let src = read_spv(&mut spv_file)
+                .expect("Failed to read shader .spv file!");
+            let info = vk::ShaderModuleCreateInfo::builder().code(&src);
+
+            let module = self.device.create_shader_module(&info, None)
+                .expect("Failed to create vertex shader module!");
+
+            self.shader_modules.insert(shader_path, module);
+        }
+    }
+
+    pub fn get_shader_module(&self, shader_path: String) -> vk::ShaderModule {
+        *self.shader_modules.get(&shader_path).unwrap()
     }
 }
 

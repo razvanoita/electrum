@@ -1,6 +1,7 @@
 use cgmath::*;
 
 use crate::pewter;
+use ash::vk;
 
 pub struct Transform {
     pub position: cgmath::Vector3<f32>,
@@ -18,17 +19,25 @@ pub struct Velocity {
     pub rotation_speed: f32,
 }
 
+pub struct Material {
+    pub vertex_shader: vk::ShaderModule,
+    pub fragment_shader: vk::ShaderModule,
+    pub pso: vk::Pipeline,
+}
+
 pub enum Component {
     TransformComponent(Transform),
     MeshComponent(Mesh),
     VelocityComponent(Velocity),
+    MaterialComponent(Material),
 }
 
 #[derive(Clone, Debug, Copy)]
 pub enum ComponentType {
     TransformComponent = 0b0000_0000_0000_0001,
     MeshComponent = 0b0000_0000_0000_0010,
-    VelocityComponent = 0b0000_0000_0000_0100
+    VelocityComponent = 0b0000_0000_0000_0100,
+    MaterialComponent = 0b0000_0000_0000_1000
 }
 
 pub type Entity = u32;
@@ -42,4 +51,5 @@ pub struct StorageEntry<T> {
 pub type TransformStorageEntry = StorageEntry<Transform>;
 pub type MeshStorageEntry = StorageEntry<Mesh>;
 pub type VelocityStorageEntry = StorageEntry<Velocity>;
+pub type MaterialStorageEntry = StorageEntry<Material>;
 

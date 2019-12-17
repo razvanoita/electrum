@@ -16,10 +16,8 @@ use aluminium::components;
 
 use std::default::Default;
 use std::ffi::CString;
-use std::fs::File;
 use std::mem;
 use std::mem::align_of;
-use std::path::Path;
 use std::ops::Mul;
 use std::os::raw::c_void;
 use rand::Rng;
@@ -151,8 +149,12 @@ fn main() {
                     .unwrap()
             })
             .collect();
+
+        // --- create shaders
+        demo.add_shader(String::from("copper/shaders/triangle_vert.spv"));
+        demo.add_shader(String::from("copper/shaders/triangle_frag.spv"));
         
-        // --- draw platonic solids
+        // --- create platonic solids
         let copy_command_buffer_0 = demo.get_and_begin_command_buffer();
         let tetrahedron_mesh = bendalloy::mesh(bendalloy::platonic::tetrahedron(), &demo.device, &demo.device_memory_properties, copy_command_buffer_0, demo.present_queue);
         let tetrahedron = world.create_entity()
@@ -165,6 +167,11 @@ fn main() {
             .with_component(components::Component::VelocityComponent(components::Velocity {
                 translation_speed: 1.0,
                 rotation_speed: 1.0
+            }))
+            .with_component(components::Component::MaterialComponent(components::Material {
+                vertex_shader: demo.get_shader_module(String::from("copper/shaders/triangle_vert.spv")),
+                fragment_shader: demo.get_shader_module(String::from("copper/shaders/triangle_frag.spv")),
+                pso: vk::Pipeline::null()
             }))
             .build();
 
@@ -181,6 +188,11 @@ fn main() {
                 translation_speed: 1.0,
                 rotation_speed: 1.0
             }))
+            .with_component(components::Component::MaterialComponent(components::Material {
+                vertex_shader: demo.get_shader_module(String::from("copper/shaders/triangle_vert.spv")),
+                fragment_shader: demo.get_shader_module(String::from("copper/shaders/triangle_frag.spv")),
+                pso: vk::Pipeline::null()
+            }))
             .build();
 
         let copy_command_buffer_2 = demo.get_and_begin_command_buffer();
@@ -195,6 +207,11 @@ fn main() {
             .with_component(components::Component::VelocityComponent(components::Velocity {
                 translation_speed: 1.0,
                 rotation_speed: 2.0
+            }))
+            .with_component(components::Component::MaterialComponent(components::Material {
+                vertex_shader: demo.get_shader_module(String::from("copper/shaders/triangle_vert.spv")),
+                fragment_shader: demo.get_shader_module(String::from("copper/shaders/triangle_frag.spv")),
+                pso: vk::Pipeline::null()
             }))
             .build();
 
@@ -211,6 +228,11 @@ fn main() {
                 translation_speed: 1.0,
                 rotation_speed: 1.5
             }))
+            .with_component(components::Component::MaterialComponent(components::Material {
+                vertex_shader: demo.get_shader_module(String::from("copper/shaders/triangle_vert.spv")),
+                fragment_shader: demo.get_shader_module(String::from("copper/shaders/triangle_frag.spv")),
+                pso: vk::Pipeline::null()
+            }))
             .build();
 
         let copy_command_buffer_5 = demo.get_and_begin_command_buffer();
@@ -225,6 +247,11 @@ fn main() {
             .with_component(components::Component::VelocityComponent(components::Velocity {
                 translation_speed: 1.0,
                 rotation_speed: 3.5
+            }))
+            .with_component(components::Component::MaterialComponent(components::Material {
+                vertex_shader: demo.get_shader_module(String::from("copper/shaders/triangle_vert.spv")),
+                fragment_shader: demo.get_shader_module(String::from("copper/shaders/triangle_frag.spv")),
+                pso: vk::Pipeline::null()
             }))
             .build();
 
@@ -286,24 +313,8 @@ fn main() {
         // --- descriptor set layout
         demo.setup_descriptor_set_layout();
 
-        // --- create shaders
-        let mut vertex_spv_file = File::open(Path::new("copper/shaders/triangle_vert.spv"))
-            .expect("Could not find vertex .spv file!");
-        let mut fragment_spv_file = File::open(Path::new("copper/shaders/triangle_frag.spv"))
-            .expect("Could not find fragment .spv file!");
-
-        let vs_src = read_spv(&mut vertex_spv_file)
-            .expect("Failed to read vertex shader .spv file!");
-        let vs_info = vk::ShaderModuleCreateInfo::builder().code(&vs_src);
-
-        let fs_src = read_spv(&mut fragment_spv_file)
-            .expect("Failed to read fragment shader .spv file!");
-        let fs_info = vk::ShaderModuleCreateInfo::builder().code(&fs_src);
-
-        let vs_module = demo.device.create_shader_module(&vs_info, None)
-            .expect("Failed to create vertex shader module!");
-        let fs_module = demo.device.create_shader_module(&fs_info, None)
-            .expect("Failed to create fragment shader module!");
+        let vs_module: vk::ShaderModule = *demo.shader_modules.get("copper/shaders/triangle_vert.spv").unwrap();
+        let fs_module: vk::ShaderModule = *demo.shader_modules.get("copper/shaders/triangle_frag.spv").unwrap();
 
         let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo {
             set_layout_count: 1,

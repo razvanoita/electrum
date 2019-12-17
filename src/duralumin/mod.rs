@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::slice::Iter;
@@ -16,6 +15,7 @@ pub struct World {
     pub transform_storage: Vec<components::TransformStorageEntry>,
     pub mesh_storage: Vec<components::MeshStorageEntry>,
     pub velocity_storage: Vec<components::VelocityStorageEntry>,
+    pub material_storage: Vec<components::MaterialStorageEntry>,
 }
 
 impl World {
@@ -27,6 +27,7 @@ impl World {
             transform_storage: vec![],
             mesh_storage: vec![],
             velocity_storage: vec![],
+            material_storage: vec![],
         }
     }
 
@@ -49,6 +50,9 @@ impl World {
             },
             components::Component::VelocityComponent(velocity_component) => {
                 self.pending_mask = Some(self.pending_mask.unwrap() | components::ComponentType::VelocityComponent as u32)
+            },
+            components::Component::MaterialComponent(material_component) => {
+                self.pending_mask = Some(self.pending_mask.unwrap() | components::ComponentType::MaterialComponent as u32)
             },
             _ => println!("Component not supported!")
         }
@@ -93,6 +97,14 @@ impl World {
                         component: velocity
                     };
                     self.velocity_storage.push(entry);
+                },
+                components::Component::MaterialComponent(material) => {
+                    let entry = components::StorageEntry::<components::Material> {
+                        storage_type: storage_type,
+                        entity: entity,
+                        component: material
+                    };
+                    self.material_storage.push(entry);
                 },
                 _ => println!("Component not supported!")
             }
