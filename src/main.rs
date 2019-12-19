@@ -153,6 +153,8 @@ fn main() {
         // --- create shaders
         demo.add_shader(String::from("copper/shaders/triangle_vert.spv"));
         demo.add_shader(String::from("copper/shaders/triangle_frag.spv"));
+        demo.add_shader(String::from("copper/shaders/triangle_noise_vert.spv"));
+        demo.add_shader(String::from("copper/shaders/triangle_noise_frag.spv"));
         
         // --- create platonic solids
         let copy_command_buffer_0 = demo.get_and_begin_command_buffer();
@@ -229,8 +231,8 @@ fn main() {
                 rotation_speed: 1.5
             }))
             .with_component(components::Component::MaterialComponent(components::Material {
-                vertex_shader: demo.get_shader_module(String::from("copper/shaders/triangle_vert.spv")),
-                fragment_shader: demo.get_shader_module(String::from("copper/shaders/triangle_frag.spv")),
+                vertex_shader: demo.get_shader_module(String::from("copper/shaders/triangle_noise_vert.spv")),
+                fragment_shader: demo.get_shader_module(String::from("copper/shaders/triangle_noise_frag.spv")),
                 pso: vk::Pipeline::null()
             }))
             .build();
@@ -249,8 +251,8 @@ fn main() {
                 rotation_speed: 3.5
             }))
             .with_component(components::Component::MaterialComponent(components::Material {
-                vertex_shader: demo.get_shader_module(String::from("copper/shaders/triangle_vert.spv")),
-                fragment_shader: demo.get_shader_module(String::from("copper/shaders/triangle_frag.spv")),
+                vertex_shader: demo.get_shader_module(String::from("copper/shaders/triangle_noise_vert.spv")),
+                fragment_shader: demo.get_shader_module(String::from("copper/shaders/triangle_noise_frag.spv")),
                 pso: vk::Pipeline::null()
             }))
             .build();
