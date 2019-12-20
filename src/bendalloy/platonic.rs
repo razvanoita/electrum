@@ -47,10 +47,10 @@ pub fn tetrahedron() -> GeometryData {
     ];
 
     let faces = vec![
-        [2u32, 1, 0],
-        [3u32, 2, 0],
-        [1u32, 3, 0],
-        [2u32, 3, 1]
+        [0, 1, 2],
+        [0, 2, 3],
+        [0, 3, 1],
+        [1, 3, 2]
     ];
 
     let face_colors: Vec<[f32; 4]> = vec![
@@ -66,9 +66,9 @@ pub fn tetrahedron() -> GeometryData {
             .normalize();
         
         let base = data.vertices.len() as u32;
-        data.indices.push(base);
-        data.indices.push(base + 1);
         data.indices.push(base + 2);
+        data.indices.push(base + 1);
+        data.indices.push(base);
 
         data.vertices.push(
             Vertex {
@@ -212,14 +212,14 @@ pub fn octahedron() -> GeometryData {
     ];
 
     let faces = vec![
-        [2u32, 0, 4],
-        [1u32, 2, 4],
-        [3u32, 1, 4],
-        [0u32, 3, 4],
-        [0u32, 2, 5],
-        [2u32, 1, 5],
-        [1u32, 3, 5],
-        [3u32, 0, 5]
+        [4, 0, 2],
+        [4, 2, 1],
+        [4, 1, 3],
+        [4, 3, 0],
+        [5, 2, 0],
+        [5, 1, 2],
+        [5, 3, 1],
+        [5, 0, 3]
     ];
 
     let face_colors: Vec<[f32; 4]> = vec![
