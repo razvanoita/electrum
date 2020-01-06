@@ -8,5 +8,9 @@ edition = "2018"
 console = "0.9.1"
 dialoguer = "0.5.0"
 
+[dependencies.rusqlite]
+version = "0.21.0"
+features = ["bundled"]
+
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.4", features = ["windef", "winuser"] }
