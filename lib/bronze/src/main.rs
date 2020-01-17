@@ -343,12 +343,56 @@ fn run_server() -> io::Result<()> {
     let theme = CustomPromptCharacterTheme::new('>');
     let mut exit_requested = false;
     while (!exit_requested) {
-        let event = receiver.recv();
+        let event = receiver.try_recv();
         if event.is_ok() {
-            terminal.write_line(&format!(
-                "Asset {} touched",
-                event.unwrap().to_str().unwrap()
-            ));
+            let path: std::path::PathBuf = event.unwrap();
+            terminal.write_line(&format!("Asset {} touched", path.to_str().unwrap()));
+
+            let asset_name = String::from(path.file_name().unwrap().to_str().unwrap());
+            let metadata = fs::metadata(path).unwrap();
+            let time_modified = metadata
+                .modified()
+                .unwrap()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            let output_name = local_assets
+                .iter()
+                .find(|&asset| asset.asset_name == asset_name)
+                .unwrap()
+                .output_name
+                .clone();
+
+            let output = build_shader(
+                shader_asset_src_path.clone(),
+                shader_asset_bin_path.clone(),
+                asset_name.clone(),
+                output_name.clone(),
+            );
+
+            if (output.status.success()) {
+                terminal.write_line(&format!(
+                    "{} produced output: {}",
+                    style("Build succesful!").green(),
+                    style(output_name.clone()).cyan()
+                ));
+
+                let conn = Connection::open("assets.db").unwrap();
+                let command: String = format!(
+                    "UPDATE assets SET modified={} WHERE name ='{}'",
+                    &time_modified, &asset_name
+                );
+                conn.execute(&command, NO_PARAMS).unwrap();
+                conn.close();
+
+                terminal.write_line(&format!(
+                    "{} was out of date. Cache updated.",
+                    style(output_name.clone()).cyan()
+                ));
+            }
+        } else {
+            let err = event.unwrap_err();
         }
 
         let input: String = Input::with_theme(&theme).interact().unwrap();
