@@ -8,6 +8,8 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
+use std::collections::HashSet;
+use std::time;
 
 use console::{style, Term};
 use dialoguer::{theme::CustomPromptCharacterTheme, Input};
@@ -15,8 +17,6 @@ use dialoguer::{theme::CustomPromptCharacterTheme, Input};
 use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
 
 use rusqlite::*;
-
-use std::collections::HashSet;
 
 use std::sync::mpsc::channel;
 
@@ -327,7 +327,6 @@ fn run_server() -> io::Result<()> {
     let mut watcher: RecommendedWatcher =
         Watcher::new_immediate(move |res: Result<notify::Event>| match res {
             Ok(event) => {
-                //watcher_terminal.write_line(&format!("Asset event: {:?}", event));
                 sender.send(event.paths.first().unwrap().clone());
             }
             Err(e) => {
@@ -340,12 +339,21 @@ fn run_server() -> io::Result<()> {
         .watch(shader_asset_src_path.clone(), RecursiveMode::Recursive)
         .unwrap();
 
+    let mut event_collecter: Vec<std::path::PathBuf> = Vec::new();
+    const NUM_EVENTS_MODIFIED: usize = 3;
+
     let theme = CustomPromptCharacterTheme::new('>');
-    let mut exit_requested = false;
-    while (!exit_requested) {
+    loop {
         let event = receiver.try_recv();
         if event.is_ok() {
-            let path: std::path::PathBuf = event.unwrap();
+            event_collecter.push(event.unwrap());
+        } else if event_collecter.len() == NUM_EVENTS_MODIFIED {
+            let path = event_collecter.pop().unwrap();
+            event_collecter.clear();
+
+            let sleep_duration = time::Duration::from_millis(500);
+            thread::sleep(sleep_duration);
+
             terminal.write_line(&format!("Asset {} touched", path.to_str().unwrap()));
 
             let asset_name = String::from(path.file_name().unwrap().to_str().unwrap());
@@ -391,13 +399,17 @@ fn run_server() -> io::Result<()> {
                     style(output_name.clone()).cyan()
                 ));
             }
-        } else {
-            let err = event.unwrap_err();
-        }
-
-        let input: String = Input::with_theme(&theme).interact().unwrap();
-        if (input == "exit") {
-            exit_requested = true;
+            else {
+                terminal.write_line(&format!(
+                    "{} did not produce output: {}",
+                    style("Build failed!").red(),
+                    style(output_name.clone()).cyan()
+                ));
+                terminal.write_line(&format!(
+                    "stderr: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
         }
     }
 
