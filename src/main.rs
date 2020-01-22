@@ -557,6 +557,9 @@ fn main() {
             .unwrap();
 
         demo_app.run(|| {
+            demo.process_asset_event();
+            demo.receive_asset_event();
+
             let new_time = std::time::SystemTime::now();
             let mut frame_time =
                 new_time.duration_since(current_time).unwrap().as_millis() as f32 / 1000.0;

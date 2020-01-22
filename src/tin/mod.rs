@@ -214,6 +214,8 @@ pub struct DemoContext {
 
     pub watcher: notify::RecommendedWatcher,
     pub watcher_rx: std::sync::mpsc::Receiver<std::path::PathBuf>,
+    event_collecter: Vec<std::path::PathBuf>,
+    ready_to_process_asset_events: bool,
 }
 
 impl DemoApp {
@@ -599,6 +601,8 @@ impl DemoApp {
                 shader_modules: HashMap::default(),
                 watcher: watcher,
                 watcher_rx: receiver,
+                event_collecter: Vec::new(),
+                ready_to_process_asset_events: false,
             }
         }
     }
@@ -848,6 +852,30 @@ impl DemoContext {
                 .expect("Failed to create graphics pipelines!");
             let gfx_pipeline = gfx_pipelines[0];
             gfx_pipeline
+        }
+    }
+
+    pub fn receive_asset_event(&mut self) {
+        const NUM_EVENTS_MODIFIED: usize = 2;
+        let event = self.watcher_rx.try_recv();
+        if event.is_ok() {
+            self.event_collecter.push(event.unwrap());
+        } else if self.event_collecter.len() == NUM_EVENTS_MODIFIED {
+            self.ready_to_process_asset_events = true;
+        }
+    }
+
+    pub fn process_asset_event(&mut self) {
+        if self.ready_to_process_asset_events {
+            let path = self.event_collecter.pop().unwrap();
+            self.event_collecter.clear();
+
+            let asset_name = String::from(path.file_name().unwrap().to_str().unwrap());
+            let shader_asset_bin_path: String = String::from("copper/shaders/bin/");
+            let key: String = shader_asset_bin_path + &asset_name;
+            println!("Shader {:?} changed!", key);
+
+            self.ready_to_process_asset_events = false;
         }
     }
 }
