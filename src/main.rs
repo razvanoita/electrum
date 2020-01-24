@@ -157,10 +157,10 @@ fn main() {
             .collect();
 
         // --- create shaders
-        demo.add_shader(String::from("copper/shaders/bin/triangle_vert.spv"));
-        demo.add_shader(String::from("copper/shaders/bin/triangle_frag.spv"));
-        demo.add_shader(String::from("copper/shaders/bin/triangle_noise_vert.spv"));
-        demo.add_shader(String::from("copper/shaders/bin/triangle_noise_frag.spv"));
+        demo.add_shader("copper/shaders/bin/triangle_vert.spv");
+        demo.add_shader("copper/shaders/bin/triangle_frag.spv");
+        demo.add_shader("copper/shaders/bin/triangle_noise_vert.spv");
+        demo.add_shader("copper/shaders/bin/triangle_noise_frag.spv");
         // --- create platonic solids
         let copy_command_buffer_0 = demo.get_and_begin_command_buffer();
         let tetrahedron_mesh = bendalloy::mesh(
@@ -200,10 +200,8 @@ fn main() {
             ))
             .with_component(components::Component::MaterialComponent(
                 components::Material {
-                    vertex_shader: demo
-                        .get_shader_module(String::from("copper/shaders/bin/triangle_vert.spv")),
-                    fragment_shader: demo
-                        .get_shader_module(String::from("copper/shaders/bin/triangle_frag.spv")),
+                    vertex_shader: demo.get_shader_module("copper/shaders/bin/triangle_vert.spv"),
+                    fragment_shader: demo.get_shader_module("copper/shaders/bin/triangle_frag.spv"),
                     pso: vk::Pipeline::null(),
                 },
             ))
@@ -247,10 +245,8 @@ fn main() {
             ))
             .with_component(components::Component::MaterialComponent(
                 components::Material {
-                    vertex_shader: demo
-                        .get_shader_module(String::from("copper/shaders/bin/triangle_vert.spv")),
-                    fragment_shader: demo
-                        .get_shader_module(String::from("copper/shaders/bin/triangle_frag.spv")),
+                    vertex_shader: demo.get_shader_module("copper/shaders/bin/triangle_vert.spv"),
+                    fragment_shader: demo.get_shader_module("copper/shaders/bin/triangle_frag.spv"),
                     pso: vk::Pipeline::null(),
                 },
             ))
@@ -294,10 +290,8 @@ fn main() {
             ))
             .with_component(components::Component::MaterialComponent(
                 components::Material {
-                    vertex_shader: demo
-                        .get_shader_module(String::from("copper/shaders/bin/triangle_vert.spv")),
-                    fragment_shader: demo
-                        .get_shader_module(String::from("copper/shaders/bin/triangle_frag.spv")),
+                    vertex_shader: demo.get_shader_module("copper/shaders/bin/triangle_vert.spv"),
+                    fragment_shader: demo.get_shader_module("copper/shaders/bin/triangle_frag.spv"),
                     pso: vk::Pipeline::null(),
                 },
             ))
@@ -341,12 +335,10 @@ fn main() {
             ))
             .with_component(components::Component::MaterialComponent(
                 components::Material {
-                    vertex_shader: demo.get_shader_module(String::from(
-                        "copper/shaders/bin/triangle_noise_vert.spv",
-                    )),
-                    fragment_shader: demo.get_shader_module(String::from(
-                        "copper/shaders/bin/triangle_noise_frag.spv",
-                    )),
+                    vertex_shader: demo
+                        .get_shader_module("copper/shaders/bin/triangle_noise_vert.spv"),
+                    fragment_shader: demo
+                        .get_shader_module("copper/shaders/bin/triangle_noise_frag.spv"),
                     pso: vk::Pipeline::null(),
                 },
             ))
@@ -390,12 +382,10 @@ fn main() {
             ))
             .with_component(components::Component::MaterialComponent(
                 components::Material {
-                    vertex_shader: demo.get_shader_module(String::from(
-                        "copper/shaders/bin/triangle_noise_vert.spv",
-                    )),
-                    fragment_shader: demo.get_shader_module(String::from(
-                        "copper/shaders/bin/triangle_noise_frag.spv",
-                    )),
+                    vertex_shader: demo
+                        .get_shader_module("copper/shaders/bin/triangle_noise_vert.spv"),
+                    fragment_shader: demo
+                        .get_shader_module("copper/shaders/bin/triangle_noise_frag.spv"),
                     pso: vk::Pipeline::null(),
                 },
             ))
@@ -557,8 +547,37 @@ fn main() {
             .unwrap();
 
         demo_app.run(|| {
-            demo.process_asset_event();
+            let asset_key = demo.process_asset_event();
             demo.receive_asset_event();
+
+            if (asset_key.is_some()) {
+                let key = asset_key.unwrap();
+                let (old_shader_module, new_shader_module) = demo.reload_shader_module(&key);
+
+                world
+                    .material_storage
+                    .iter_mut()
+                    .filter(|entry| {
+                        (entry.storage_type & material_filter == material_filter)
+                            && (entry.component.vertex_shader == old_shader_module
+                                || entry.component.fragment_shader == old_shader_module)
+                    })
+                    .for_each(|entry| {
+                        if entry.component.vertex_shader == old_shader_module {
+                            entry.component.vertex_shader = new_shader_module;
+                        } else if entry.component.fragment_shader == old_shader_module {
+                            entry.component.fragment_shader = new_shader_module;
+                        }
+                        entry.component.pso = demo.create_pso(
+                            entry.component.vertex_shader,
+                            entry.component.fragment_shader,
+                            renderpass,
+                            pipeline_layout,
+                            viewports,
+                            scissors,
+                        );
+                    });
+            }
 
             let new_time = std::time::SystemTime::now();
             let mut frame_time =

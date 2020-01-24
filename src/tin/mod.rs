@@ -701,7 +701,7 @@ impl DemoContext {
         }
     }
 
-    pub fn add_shader(&mut self, shader_path: String) {
+    pub fn add_shader(&mut self, shader_path: &str) {
         unsafe {
             let mut spv_file =
                 File::open(Path::new(&shader_path)).expect("Could not find vertex .spv file!");
@@ -714,12 +714,22 @@ impl DemoContext {
                 .create_shader_module(&info, None)
                 .expect("Failed to create vertex shader module!");
 
-            self.shader_modules.insert(shader_path, module);
+            self.shader_modules
+                .insert(String::from(shader_path), module);
         }
     }
 
-    pub fn get_shader_module(&self, shader_path: String) -> vk::ShaderModule {
-        *self.shader_modules.get(&shader_path).unwrap()
+    pub fn get_shader_module(&self, shader_path: &str) -> vk::ShaderModule {
+        *self.shader_modules.get(&String::from(shader_path)).unwrap()
+    }
+
+    pub fn reload_shader_module(
+        &mut self,
+        shader_path: &str,
+    ) -> (vk::ShaderModule, vk::ShaderModule) {
+        let existing_shader_module = self.get_shader_module(shader_path.clone());
+        self.add_shader(shader_path.clone());
+        (existing_shader_module, self.get_shader_module(shader_path))
     }
 
     pub fn create_pso(
@@ -865,7 +875,8 @@ impl DemoContext {
         }
     }
 
-    pub fn process_asset_event(&mut self) {
+    pub fn process_asset_event(&mut self) -> Option<String> {
+        let mut res: Option<String> = None;
         if self.ready_to_process_asset_events {
             let path = self.event_collecter.pop().unwrap();
             self.event_collecter.clear();
@@ -876,7 +887,10 @@ impl DemoContext {
             println!("Shader {:?} changed!", key);
 
             self.ready_to_process_asset_events = false;
+
+            res = Some(key);
         }
+        res
     }
 }
 
