@@ -1,6 +1,8 @@
+#[macro_use]
+
 use cgmath::*;
 
-use crate::pewter;
+use crate::render;
 use ash::vk;
 
 pub struct Transform {
@@ -10,8 +12,8 @@ pub struct Transform {
 }
 
 pub struct Mesh {
-    pub vertex_buffer: pewter::VertexBuffer,
-    pub index_buffer: pewter::IndexBuffer,
+    pub vertex_buffer: render::buffer::VertexBuffer,
+    pub index_buffer: render::buffer::IndexBuffer,
 }
 
 pub struct Velocity {

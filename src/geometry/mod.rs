@@ -1,8 +1,8 @@
 use cgmath::*;
 
-use crate::aluminium::components;
-use crate::pewter;
-use crate::tin;
+use crate::components;
+use crate::render;
+use crate::demo;
 
 use ash::util::*;
 use ash::vk;
@@ -12,8 +12,8 @@ use ash::{Device, Entry, Instance};
 use std::mem;
 use std::mem::align_of;
 
-use pewter::Buffer;
-use tin::end_and_submit_command_buffer;
+use render::buffer::Buffer;
+use demo::end_and_submit_command_buffer;
 
 pub mod platonic;
 
@@ -25,7 +25,7 @@ pub fn mesh(
     present_queue: vk::Queue
 ) -> components::Mesh {
     unsafe {
-        let vb_staging = pewter::VertexBuffer::construct(
+        let vb_staging = render::buffer::VertexBuffer::construct(
             device, 
             mem_prop,
             geometry.vertices.len() as u64,
@@ -42,7 +42,7 @@ pub fn mesh(
         device.bind_buffer_memory(vb_staging.buffer, vb_staging.memory, 0)
             .unwrap();
 
-        let vb = pewter::VertexBuffer::construct(
+        let vb = render::buffer::VertexBuffer::construct(
             device, 
             mem_prop,
             geometry.vertices.len() as u64,
@@ -54,7 +54,7 @@ pub fn mesh(
         device.bind_buffer_memory(vb.buffer, vb.memory, 0)
             .unwrap();
 
-        let ib_staging = pewter::IndexBuffer::construct(
+        let ib_staging = render::buffer::IndexBuffer::construct(
             device, 
             mem_prop,  
             geometry.indices.len() as u64,
@@ -71,7 +71,7 @@ pub fn mesh(
         device.bind_buffer_memory(ib_staging.buffer, ib_staging.memory, 0)
             .unwrap();
 
-        let ib = pewter::IndexBuffer::construct(
+        let ib = render::buffer::IndexBuffer::construct(
             device, 
             mem_prop,  
             geometry.indices.len() as u64,

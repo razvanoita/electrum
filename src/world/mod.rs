@@ -5,7 +5,7 @@ use std::slice::IterMut;
 use std::iter::Iterator;
 use std::ops::DerefMut;
 
-use crate::aluminium::components;
+use crate::components;
 
 pub struct World {
     pending_mask: Option<u32>,

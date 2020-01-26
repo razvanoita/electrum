@@ -5,14 +5,13 @@ use ash::{Device, Entry, Instance};
 
 use cgmath::*;
 
-mod aluminium;
-mod bendalloy;
-mod duralumin;
-mod pewter;
-mod tin;
+mod components;
+mod geometry;
+mod world;
+mod render;
+mod demo;
 
-use aluminium::components;
-use pewter::Buffer;
+use render::buffer::Buffer;
 
 use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
 use rand::Rng;
@@ -80,9 +79,9 @@ fn update_dynamic_uniform_buffer(
 }
 
 fn main() {
-    let mut world = duralumin::World::new();
+    let mut world = world::World::new();
     unsafe {
-        let demo_app = tin::DemoApp::new(1920, 1080);
+        let demo_app = demo::DemoApp::new(1920, 1080);
         let mut demo = demo_app.build_ctx();
 
         let renderpass_atachments = [
@@ -163,8 +162,8 @@ fn main() {
         demo.add_shader("copper/shaders/bin/triangle_noise_frag.spv");
         // --- create platonic solids
         let copy_command_buffer_0 = demo.get_and_begin_command_buffer();
-        let tetrahedron_mesh = bendalloy::mesh(
-            bendalloy::platonic::tetrahedron(),
+        let tetrahedron_mesh = geometry::mesh(
+            geometry::platonic::tetrahedron(),
             &demo.device,
             &demo.device_memory_properties,
             copy_command_buffer_0,
@@ -208,8 +207,8 @@ fn main() {
             .build();
 
         let copy_command_buffer_1 = demo.get_and_begin_command_buffer();
-        let cube_mesh = bendalloy::mesh(
-            bendalloy::platonic::cube(),
+        let cube_mesh = geometry::mesh(
+            geometry::platonic::cube(),
             &demo.device,
             &demo.device_memory_properties,
             copy_command_buffer_1,
@@ -253,8 +252,8 @@ fn main() {
             .build();
 
         let copy_command_buffer_2 = demo.get_and_begin_command_buffer();
-        let octahedron_mesh = bendalloy::mesh(
-            bendalloy::platonic::octahedron(),
+        let octahedron_mesh = geometry::mesh(
+            geometry::platonic::octahedron(),
             &demo.device,
             &demo.device_memory_properties,
             copy_command_buffer_2,
@@ -298,8 +297,8 @@ fn main() {
             .build();
 
         let copy_command_buffer_3 = demo.get_and_begin_command_buffer();
-        let dodecahedron_mesh = bendalloy::mesh(
-            bendalloy::platonic::dodecahedron(),
+        let dodecahedron_mesh = geometry::mesh(
+            geometry::platonic::dodecahedron(),
             &demo.device,
             &demo.device_memory_properties,
             copy_command_buffer_3,
@@ -345,8 +344,8 @@ fn main() {
             .build();
 
         let copy_command_buffer_5 = demo.get_and_begin_command_buffer();
-        let icosahedron_mesh = bendalloy::mesh(
-            bendalloy::platonic::icosahedron(),
+        let icosahedron_mesh = geometry::mesh(
+            geometry::platonic::icosahedron(),
             &demo.device,
             &demo.device_memory_properties,
             copy_command_buffer_5,
@@ -402,7 +401,7 @@ fn main() {
             dynamic_alignment =
                 (dynamic_alignment + min_ub_alignment - 1) & !(min_ub_alignment - 1);
         }
-        let ub_instance_data = pewter::UniformBuffer::construct(
+        let ub_instance_data = render::buffer::UniformBuffer::construct(
             &demo.device,
             &demo.device_memory_properties,
             5 as u64,
@@ -444,7 +443,7 @@ fn main() {
             });
 
         // --- create non-dynamic uniform buffer
-        let ub_view_data = pewter::UniformBuffer::construct(
+        let ub_view_data = render::buffer::UniformBuffer::construct(
             &demo.device,
             &demo.device_memory_properties,
             1,
@@ -568,6 +567,7 @@ fn main() {
                         } else if entry.component.fragment_shader == old_shader_module {
                             entry.component.fragment_shader = new_shader_module;
                         }
+                        demo.device.destroy_pipeline(entry.component.pso, None);
                         entry.component.pso = demo.create_pso(
                             entry.component.vertex_shader,
                             entry.component.fragment_shader,
@@ -577,6 +577,8 @@ fn main() {
                             scissors,
                         );
                     });
+
+                demo.device.destroy_shader_module(old_shader_module, None);
             }
 
             let new_time = std::time::SystemTime::now();
@@ -684,7 +686,7 @@ fn main() {
                 })
                 .clear_values(&clear_values);
 
-            tin::record_submit_command_buffer(
+            demo::record_submit_command_buffer(
                 &demo.device,
                 demo.draw_command_buffer,
                 demo.present_queue,

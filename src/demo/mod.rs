@@ -3,7 +3,7 @@ use ash::extensions::{
     khr::{Surface, Swapchain},
 };
 
-use crate::bendalloy;
+use crate::geometry;
 
 use ash::extensions::khr::Win32Surface;
 
@@ -23,6 +23,8 @@ use std::time::*;
 
 use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
 use std::sync::mpsc::channel;
+
+use crate::render;
 
 #[macro_export]
 macro_rules! offset_of {
@@ -216,6 +218,8 @@ pub struct DemoContext {
     pub watcher_rx: std::sync::mpsc::Receiver<std::path::PathBuf>,
     event_collecter: Vec<std::path::PathBuf>,
     ready_to_process_asset_events: bool,
+
+    pub framebuffers: Vec<render::framebuffer::Framebuffer>,
 }
 
 impl DemoApp {
@@ -603,6 +607,7 @@ impl DemoApp {
                 watcher_rx: receiver,
                 event_collecter: Vec::new(),
                 ready_to_process_asset_events: false,
+                framebuffers: Vec::default(),
             }
         }
     }
@@ -760,7 +765,7 @@ impl DemoContext {
 
             let vertex_input_binding_descs = [vk::VertexInputBindingDescription {
                 binding: 0,
-                stride: mem::size_of::<bendalloy::platonic::Vertex>() as u32,
+                stride: mem::size_of::<geometry::platonic::Vertex>() as u32,
                 input_rate: vk::VertexInputRate::VERTEX,
             }];
             let vertex_input_attribute_descs = [
@@ -768,19 +773,19 @@ impl DemoContext {
                     location: 0,
                     binding: 0,
                     format: vk::Format::R32G32B32A32_SFLOAT,
-                    offset: offset_of!(bendalloy::platonic::Vertex, position) as u32,
+                    offset: offset_of!(geometry::platonic::Vertex, position) as u32,
                 },
                 vk::VertexInputAttributeDescription {
                     location: 1,
                     binding: 0,
                     format: vk::Format::R32G32B32A32_SFLOAT,
-                    offset: offset_of!(bendalloy::platonic::Vertex, normal) as u32,
+                    offset: offset_of!(geometry::platonic::Vertex, normal) as u32,
                 },
                 vk::VertexInputAttributeDescription {
                     location: 2,
                     binding: 0,
                     format: vk::Format::R32G32B32A32_SFLOAT,
-                    offset: offset_of!(bendalloy::platonic::Vertex, color) as u32,
+                    offset: offset_of!(geometry::platonic::Vertex, color) as u32,
                 },
             ];
             let vertex_input_state_info = vk::PipelineVertexInputStateCreateInfo {
@@ -891,6 +896,50 @@ impl DemoContext {
             res = Some(key);
         }
         res
+    }
+
+    pub fn create_gbuffer(&mut self, width: u32, height: u32) {
+        let mut render_targets: Vec<render::framebuffer::RenderTarget> = Vec::new();
+
+        render_targets.push(render::framebuffer::RenderTarget::new(
+            &self.device, 
+            &self.device_memory_properties, 
+            vk::Format::A2R10G10B10_UNORM_PACK32, 
+            vk::ImageUsageFlags::COLOR_ATTACHMENT, 
+            width, 
+            height, 
+            1)
+        );
+
+        render_targets.push(render::framebuffer::RenderTarget::new(
+            &self.device, 
+            &self.device_memory_properties, 
+            vk::Format::R8G8B8A8_UNORM, 
+            vk::ImageUsageFlags::COLOR_ATTACHMENT, 
+            width, 
+            height, 
+            1)
+        );
+
+        render_targets.push(render::framebuffer::RenderTarget::new(
+            &self.device, 
+            &self.device_memory_properties, 
+            vk::Format::R8G8B8A8_UNORM, 
+            vk::ImageUsageFlags::COLOR_ATTACHMENT, 
+            width, 
+            height, 
+            1)
+        );
+
+        render_targets.push(render::framebuffer::RenderTarget::new(
+            &self.device, 
+            &self.device_memory_properties, 
+            vk::Format::R16G16B16A16_SFLOAT, 
+            vk::ImageUsageFlags::COLOR_ATTACHMENT, 
+            width, 
+            height, 
+            1)
+        );
     }
 }
 

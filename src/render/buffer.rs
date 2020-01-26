@@ -3,9 +3,7 @@ use ash::vk;
 pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::{Device, Entry, Instance};
 
-use crate::tin;
-
-// ---
+use crate::demo;
 
 pub trait Buffer {
     fn construct(
@@ -43,7 +41,7 @@ pub trait Buffer {
         unsafe {
             let buffer_mem_req = device.get_buffer_memory_requirements(*buffer);
 
-            let buffer_mem_idx = tin::find_memorytype_index(
+            let buffer_mem_idx = demo::find_memorytype_index(
                 &buffer_mem_req, 
                 &device_mem_prop, 
                 mem_prop_flags
