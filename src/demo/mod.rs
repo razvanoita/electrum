@@ -902,44 +902,103 @@ impl DemoContext {
         let mut render_targets: Vec<render::framebuffer::RenderTarget> = Vec::new();
 
         render_targets.push(render::framebuffer::RenderTarget::new(
-            &self.device, 
-            &self.device_memory_properties, 
-            vk::Format::A2R10G10B10_UNORM_PACK32, 
-            vk::ImageUsageFlags::COLOR_ATTACHMENT, 
-            width, 
-            height, 
-            1)
-        );
+            &self.device,
+            &self.device_memory_properties,
+            vk::Format::A2R10G10B10_UNORM_PACK32,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            width,
+            height,
+            1,
+        ));
 
         render_targets.push(render::framebuffer::RenderTarget::new(
-            &self.device, 
-            &self.device_memory_properties, 
-            vk::Format::R8G8B8A8_UNORM, 
-            vk::ImageUsageFlags::COLOR_ATTACHMENT, 
-            width, 
-            height, 
-            1)
-        );
+            &self.device,
+            &self.device_memory_properties,
+            vk::Format::R8G8B8A8_UNORM,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            width,
+            height,
+            1,
+        ));
 
         render_targets.push(render::framebuffer::RenderTarget::new(
-            &self.device, 
-            &self.device_memory_properties, 
-            vk::Format::R8G8B8A8_UNORM, 
-            vk::ImageUsageFlags::COLOR_ATTACHMENT, 
-            width, 
-            height, 
-            1)
-        );
+            &self.device,
+            &self.device_memory_properties,
+            vk::Format::R8G8B8A8_UNORM,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            width,
+            height,
+            1,
+        ));
 
         render_targets.push(render::framebuffer::RenderTarget::new(
-            &self.device, 
-            &self.device_memory_properties, 
-            vk::Format::R16G16B16A16_SFLOAT, 
-            vk::ImageUsageFlags::COLOR_ATTACHMENT, 
-            width, 
-            height, 
-            1)
-        );
+            &self.device,
+            &self.device_memory_properties,
+            vk::Format::R16G16B16A16_SFLOAT,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            width,
+            height,
+            1,
+        ));
+
+        render_targets.push(render::framebuffer::RenderTarget::new(
+            &self.device,
+            &self.device_memory_properties,
+            vk::Format::D24_UNORM_S8_UINT,
+            vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            width,
+            height,
+            1,
+        ));
+
+        let attachments_descs: Vec<vk::AttachmentDescription> = render_targets
+            .iter()
+            .map(|rt| {
+                vk::AttachmentDescription::builder()
+                    .format(rt.format)
+                    .final_layout(if rt.format == vk::Format::D24_UNORM_S8_UINT {
+                        vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                    } else {
+                        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+                    })
+                    .initial_layout(vk::ImageLayout::UNDEFINED)
+                    .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+                    .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+                    .store_op(vk::AttachmentStoreOp::STORE)
+                    .load_op(vk::AttachmentLoadOp::CLEAR)
+                    .samples(vk::SampleCountFlags::TYPE_1)
+                    .build()
+            })
+            .collect();
+
+        let mut color_refs: Vec<vk::AttachmentReference> = Vec::new();
+        color_refs.push(vk::AttachmentReference {
+            attachment: 0,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        });
+        color_refs.push(vk::AttachmentReference {
+            attachment: 1,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        });
+        color_refs.push(vk::AttachmentReference {
+            attachment: 2,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        });
+        color_refs.push(vk::AttachmentReference {
+            attachment: 3,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        });
+
+        let depth_ref = vk::AttachmentReference {
+            attachment: 4,
+            layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        };
+
+        let subpass_desc = vk::SubpassDescription::builder()
+            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+            .color_attachments(color_refs.as_slice())
+            .depth_stencil_attachment(&depth_ref)
+            .build();
     }
 }
 
