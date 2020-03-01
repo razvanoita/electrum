@@ -17,8 +17,20 @@ use demo::end_and_submit_command_buffer;
 
 pub mod platonic;
 
+#[derive(Clone, Debug, Copy)]
+pub struct Vertex {
+    pub position: [f32; 4],
+    pub normal: [f32; 4],
+    pub color: [f32; 4]
+}
+
+pub struct GeometryData {
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u32>
+}
+
 pub fn mesh(
-    geometry: platonic::GeometryData, 
+    geometry: GeometryData, 
     device: &ash::Device, 
     mem_prop: &vk::PhysicalDeviceMemoryProperties, 
     copy_command_buffer: vk::CommandBuffer,
@@ -29,14 +41,14 @@ pub fn mesh(
             device, 
             mem_prop,
             geometry.vertices.len() as u64,
-            std::mem::size_of::<platonic::Vertex>() as u64,
+            std::mem::size_of::<Vertex>() as u64,
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             false
         );
         let vb_staging_ptr = device.map_memory(vb_staging.memory, 0, vb_staging.size, vk::MemoryMapFlags::empty())
             .unwrap();
-        let mut vb_staging_aligned_ptr = Align::new(vb_staging_ptr, align_of::<platonic::Vertex>() as u64, vb_staging.size);
+        let mut vb_staging_aligned_ptr = Align::new(vb_staging_ptr, align_of::<Vertex>() as u64, vb_staging.size);
         vb_staging_aligned_ptr.copy_from_slice(&geometry.vertices);
         device.unmap_memory(vb_staging.memory);
         device.bind_buffer_memory(vb_staging.buffer, vb_staging.memory, 0)
@@ -46,7 +58,7 @@ pub fn mesh(
             device, 
             mem_prop,
             geometry.vertices.len() as u64,
-            std::mem::size_of::<platonic::Vertex>() as u64,
+            std::mem::size_of::<Vertex>() as u64,
             vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
             false
@@ -102,4 +114,83 @@ pub fn mesh(
             index_buffer: ib
         }
     }
+}
+
+pub fn quad() -> GeometryData {
+    let mut data = GeometryData {
+        vertices: Vec::default(),
+        indices: Vec::default()
+    };
+
+    let vertex_data = vec![
+        cgmath::Vector3 {
+            x: 1.0,
+            y: 1.0,
+            z: 0.0
+        },
+        cgmath::Vector3 {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+        cgmath::Vector3 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        },
+        cgmath::Vector3 {
+            x: 1.0,
+            y: 0.0,
+            z: 0.0,
+        }
+    ];
+
+    let faces = vec![
+        [0, 1, 2],
+        [2, 3, 0],
+    ];
+
+    let face_colors: Vec<[f32; 4]> = vec![
+        [1.0, 0.0, 0.0, 1.0],
+        [0.0, 1.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0, 1.0],
+        [1.0, 0.0, 1.0, 1.0]
+    ];
+
+    for (i, face) in faces.iter().enumerate() {
+        let normal = cgmath::Vector3 {
+            x: 1.0,
+            y: 1.0,
+            z: 1.0,
+        };
+        
+        let base = data.vertices.len() as u32;
+        data.indices.push(base + 2);
+        data.indices.push(base + 1);
+        data.indices.push(base);
+
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[0] as usize].x, vertex_data[face[0] as usize].y, vertex_data[face[0] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize] 
+            }
+        );
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[1] as usize].x, vertex_data[face[1] as usize].y, vertex_data[face[1] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize]
+            }
+        );
+        data.vertices.push(
+            Vertex {
+                position: [vertex_data[face[2] as usize].x, vertex_data[face[2] as usize].y, vertex_data[face[2] as usize].z, 1.0],
+                normal: [normal.x, normal.y, normal.z, 0.0],
+                color: face_colors[i as usize]
+            }
+        );
+    }
+
+    data
 }

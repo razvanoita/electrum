@@ -28,24 +28,13 @@ struct ViewData {
     view: cgmath::Matrix4<f32>,
 }
 
-fn update_non_dynamic_uniform_buffer(
+fn update_viewdata_uniform_buffer(
     mapped_memory: *mut c_void,
     alignment: vk::DeviceSize,
     size: vk::DeviceSize,
-    aspect_ratio: f32,
+    projection_matrix: cgmath::Matrix4<f32>,
+    view_matrix: cgmath::Matrix4<f32>
 ) {
-    // --- build data
-    let projection_matrix = cgmath::perspective(
-        cgmath::Rad::from(cgmath::Deg(60.0)),
-        aspect_ratio,
-        0.1,
-        256.0,
-    );
-    let view_matrix = cgmath::Matrix4::look_at(
-        cgmath::Point3::new(0.0, 0.0, -10.0),
-        cgmath::Point3::new(0.0, 0.0, 5.0),
-        cgmath::Vector3::new(0.0, 1.0, 0.0),
-    );
     let view_data = [ViewData {
         projection: projection_matrix,
         view: view_matrix,
@@ -75,6 +64,190 @@ fn update_dynamic_uniform_buffer(
             ..Default::default()
         };
         device.flush_mapped_memory_ranges(&[memory_range]);
+    }
+}
+
+fn create_gbuffer(
+    device: &ash::Device,
+    device_memory_properties: &vk::PhysicalDeviceMemoryProperties,
+    width: u32, 
+    height: u32
+) -> render::framebuffer::Framebuffer {
+    unsafe {
+        let mut render_targets: Vec<render::framebuffer::RenderTarget> = Vec::new();
+
+        render_targets.push(render::framebuffer::RenderTarget::new(
+            &device,
+            &device_memory_properties,
+            vk::Format::A2R10G10B10_UNORM_PACK32,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            width,
+            height,
+            1,
+        ));
+
+        render_targets.push(render::framebuffer::RenderTarget::new(
+            &device,
+            &device_memory_properties,
+            vk::Format::R8G8B8A8_UNORM,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            width,
+            height,
+            1,
+        ));
+
+        render_targets.push(render::framebuffer::RenderTarget::new(
+            &device,
+            &device_memory_properties,
+            vk::Format::R8G8B8A8_UNORM,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            width,
+            height,
+            1,
+        ));
+
+        render_targets.push(render::framebuffer::RenderTarget::new(
+            &device,
+            &device_memory_properties,
+            vk::Format::R16G16B16A16_SFLOAT,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            width,
+            height,
+            1,
+        ));
+
+        render_targets.push(render::framebuffer::RenderTarget::new(
+            &device,
+            &device_memory_properties,
+            vk::Format::D24_UNORM_S8_UINT,
+            vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            width,
+            height,
+            1,
+        ));
+
+        let attachments_descs: Vec<vk::AttachmentDescription> = render_targets
+            .iter()
+            .map(|rt| {
+                vk::AttachmentDescription::builder()
+                    .format(rt.format)
+                    .final_layout(if rt.format == vk::Format::D24_UNORM_S8_UINT {
+                        vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                    } else {
+                        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+                    })
+                    .initial_layout(vk::ImageLayout::UNDEFINED)
+                    .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+                    .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+                    .store_op(vk::AttachmentStoreOp::STORE)
+                    .load_op(vk::AttachmentLoadOp::CLEAR)
+                    .samples(vk::SampleCountFlags::TYPE_1)
+                    .build()
+            })
+            .collect();
+
+        let mut color_refs: Vec<vk::AttachmentReference> = Vec::new();
+        color_refs.push(vk::AttachmentReference {
+            attachment: 0,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        });
+        color_refs.push(vk::AttachmentReference {
+            attachment: 1,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        });
+        color_refs.push(vk::AttachmentReference {
+            attachment: 2,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        });
+        color_refs.push(vk::AttachmentReference {
+            attachment: 3,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        });
+
+        let depth_ref = vk::AttachmentReference {
+            attachment: 4,
+            layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        };
+
+        let subpass_desc = vk::SubpassDescription::builder()
+            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+            .color_attachments(color_refs.as_slice())
+            .depth_stencil_attachment(&depth_ref)
+            .build();
+
+        let subpass_dependencies: [vk::SubpassDependency; 2] = [
+            vk::SubpassDependency::builder()
+                .src_subpass(vk::SUBPASS_EXTERNAL)
+                .dst_subpass(0)
+                .src_stage_mask(vk::PipelineStageFlags::BOTTOM_OF_PIPE)
+                .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+                .src_access_mask(vk::AccessFlags::MEMORY_READ)
+                .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+                .dependency_flags(vk::DependencyFlags::BY_REGION)
+                .build(),
+            vk::SubpassDependency::builder()
+                .src_subpass(vk::SUBPASS_EXTERNAL)
+                .dst_subpass(0)
+                .src_stage_mask(vk::PipelineStageFlags::BOTTOM_OF_PIPE)
+                .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+                .src_access_mask(vk::AccessFlags::MEMORY_READ)
+                .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+                .dependency_flags(vk::DependencyFlags::BY_REGION)
+                .build()
+        ];
+        
+        let renderpass_info = vk::RenderPassCreateInfo::builder()
+            .attachments(&attachments_descs)
+            .subpasses(&[subpass_desc])
+            .dependencies(&subpass_dependencies)
+            .build();
+
+        let renderpass = device.create_render_pass(&renderpass_info, None).unwrap();
+
+        let image_views: [vk::ImageView; 5] = [
+            render_targets[0].view,
+            render_targets[1].view,
+            render_targets[2].view,
+            render_targets[3].view,
+            render_targets[4].view,
+        ];
+
+        let fb_create_info = vk::FramebufferCreateInfo::builder()
+            .render_pass(renderpass)
+            .attachments(&image_views)
+            .width(width)
+            .height(height)
+            .layers(1)
+            .build();
+        let fb = device.create_framebuffer(&fb_create_info, None).unwrap();
+
+       render::framebuffer::Framebuffer {
+            width: width,
+            height: height,
+            framebuffer: fb,
+            render_pass: renderpass,
+            render_targets: render_targets,
+        }
+    }
+}
+
+fn create_samplers(device: &ash::Device) -> (vk::Sampler, vk::Sampler) {
+    unsafe {
+        let sampler_info = vk::SamplerCreateInfo::builder()
+            .mag_filter(vk::Filter::NEAREST)
+            .min_filter(vk::Filter::NEAREST)
+            .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+            .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+            .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+            .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+            .mip_lod_bias(0.0)
+            .max_anisotropy(1.0)
+            .min_lod(0.0)
+            .max_lod(1.0)
+            .border_color(vk::BorderColor::FLOAT_OPAQUE_WHITE)
+            .build();
+
+        (device.create_sampler(&sampler_info, None).unwrap(), device.create_sampler(&sampler_info, None).unwrap())
     }
 }
 
@@ -438,8 +611,7 @@ fn main() {
                     x: rng.gen_range(-1.0, 1.0),
                     y: rng.gen_range(-1.0, 1.0),
                     z: rng.gen_range(-1.0, 1.0),
-                } * 2.0
-                    * 3.14;
+                } * 2.0 * 3.14;
             });
 
         // --- create non-dynamic uniform buffer
@@ -465,12 +637,98 @@ fn main() {
                 vk::MemoryMapFlags::empty(),
             )
             .unwrap();
-        update_non_dynamic_uniform_buffer(
+        update_viewdata_uniform_buffer(
             ub_view_data_ptr,
             mem::size_of::<ViewData>() as u64,
             ub_view_data.descriptor.range,
-            demo.surface_resolution.width as f32 / demo.surface_resolution.height as f32,
+            cgmath::perspective(
+                cgmath::Rad::from(cgmath::Deg(60.0)),
+                demo.surface_resolution.width as f32 / demo.surface_resolution.height as f32,
+                0.1,
+                256.0,
+            ),
+            cgmath::Matrix4::look_at(
+                cgmath::Point3::new(0.0, 0.0, -10.0),
+                cgmath::Point3::new(0.0, 0.0, 5.0),
+                cgmath::Vector3::new(0.0, 1.0, 0.0),
+            )
         );
+
+        let gbuffer_descriptor_set_layout = demo.create_descriptor_set_layout(
+            vec![
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::VERTEX,
+                    binding: 0,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::VERTEX,
+                    binding: 1,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    binding: 2,
+                    ..Default::default()
+                },
+            ]
+        );
+        let gbuffer_pipeline_layout = demo.create_pipeline_layout(gbuffer_descriptor_set_layout);
+
+        // --- gbuffer
+        let deferred_descriptor_set_layout = demo.create_descriptor_set_layout(
+            vec![
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::VERTEX,
+                    binding: 0,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    binding: 1,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    binding: 2,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    binding: 3,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    binding: 4,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    binding: 5,
+                    ..Default::default()
+                },
+            ]
+        );
+        let deferred_pipeline_layout = demo.create_pipeline_layout(deferred_descriptor_set_layout);
 
         // --- descriptor set layout
         demo.setup_descriptor_set_layout();
@@ -498,6 +756,54 @@ fn main() {
             extent: demo.surface_resolution.clone(),
         }];
 
+        // --- prepare for deferred
+        let gbuffer = create_gbuffer(&demo.device, &demo.device_memory_properties, demo.surface_resolution.width, demo.surface_resolution.height);
+        let (color_sampler, depth_sampler) = create_samplers(&demo.device);
+
+        let ccb = demo.get_and_begin_command_buffer();
+        let fullscreen_quad = geometry::mesh(
+            geometry::quad(),
+            &demo.device,
+            &demo.device_memory_properties,
+            ccb,
+            demo.present_queue,
+        );
+
+        let ub_fullscreen_vs = render::buffer::UniformBuffer::construct(
+            &demo.device,
+            &demo.device_memory_properties,
+            1,
+            mem::size_of::<ViewData>() as u64,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            false,
+        );
+        demo.device
+            .bind_buffer_memory(ub_fullscreen_vs.descriptor.buffer, ub_fullscreen_vs.memory, 0)
+            .unwrap();
+        let ub_fullscreen_vs_ptr = demo
+            .device
+            .map_memory(
+                ub_fullscreen_vs.memory,
+                0,
+                ub_fullscreen_vs.descriptor.range,
+                vk::MemoryMapFlags::empty(),
+            )
+            .unwrap();
+
+        update_viewdata_uniform_buffer(
+            ub_fullscreen_vs_ptr,
+            mem::size_of::<ViewData>() as u64,
+            ub_fullscreen_vs.descriptor.range,
+            cgmath::ortho(0.0, 1.0, 0.0, 1.0, -1.0, 1.0),
+            cgmath::Matrix4::look_at(
+                cgmath::Point3::new(0.0, 0.0, 0.0),
+                cgmath::Point3::new(0.0, 0.0, 0.0),
+                cgmath::Vector3::new(0.0, 0.0, 0.0),
+            )
+        );
+
+        // --- build PSOs for objects
         let material_filter = components::ComponentType::MaterialComponent as u32;
         world
             .material_storage
@@ -799,5 +1105,9 @@ fn main() {
             demo.device.destroy_framebuffer(framebuffer, None);
         }
         demo.device.destroy_render_pass(renderpass, None);
+
+        gbuffer.destroy(&demo.device);
+        demo.device.destroy_sampler(color_sampler, None);
+        demo.device.destroy_sampler(depth_sampler, None);
     }
 }

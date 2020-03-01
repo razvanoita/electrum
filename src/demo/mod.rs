@@ -25,6 +25,7 @@ use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
 use std::sync::mpsc::channel;
 
 use crate::render;
+use crate::components;
 
 #[macro_export]
 macro_rules! offset_of {
@@ -218,8 +219,6 @@ pub struct DemoContext {
     pub watcher_rx: std::sync::mpsc::Receiver<std::path::PathBuf>,
     event_collecter: Vec<std::path::PathBuf>,
     ready_to_process_asset_events: bool,
-
-    pub framebuffers: Vec<render::framebuffer::Framebuffer>,
 }
 
 impl DemoApp {
@@ -607,7 +606,6 @@ impl DemoApp {
                 watcher_rx: receiver,
                 event_collecter: Vec::new(),
                 ready_to_process_asset_events: false,
-                framebuffers: Vec::default(),
             }
         }
     }
@@ -633,6 +631,36 @@ impl DemoContext {
                 .expect("Failed to begin transient command buffer!");
 
             command_buffer
+        }
+    }
+
+    pub fn create_descriptor_set_layout(&self, bindings: Vec<vk::DescriptorSetLayoutBinding>) -> vk::DescriptorSetLayout {
+        unsafe {
+            let descriptor_set_layout_info = vk::DescriptorSetLayoutCreateInfo {
+                binding_count: bindings.len() as u32,
+                p_bindings: bindings.as_ptr(),
+                ..Default::default()
+            };
+
+            self
+                .device
+                .create_descriptor_set_layout(&descriptor_set_layout_info, None)
+                .unwrap()
+        }
+    }
+
+    pub fn create_pipeline_layout(&self, descriptor_set_layout: vk::DescriptorSetLayout) -> vk::PipelineLayout {
+        unsafe {
+            let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo {
+                set_layout_count: 1,
+                p_set_layouts: [descriptor_set_layout].as_ptr(),
+                ..Default::default()
+            };
+
+            self
+                .device
+                .create_pipeline_layout(&pipeline_layout_create_info, None)
+                .unwrap()
         }
     }
 
@@ -765,7 +793,7 @@ impl DemoContext {
 
             let vertex_input_binding_descs = [vk::VertexInputBindingDescription {
                 binding: 0,
-                stride: mem::size_of::<geometry::platonic::Vertex>() as u32,
+                stride: mem::size_of::<geometry::Vertex>() as u32,
                 input_rate: vk::VertexInputRate::VERTEX,
             }];
             let vertex_input_attribute_descs = [
@@ -773,19 +801,19 @@ impl DemoContext {
                     location: 0,
                     binding: 0,
                     format: vk::Format::R32G32B32A32_SFLOAT,
-                    offset: offset_of!(geometry::platonic::Vertex, position) as u32,
+                    offset: offset_of!(geometry::Vertex, position) as u32,
                 },
                 vk::VertexInputAttributeDescription {
                     location: 1,
                     binding: 0,
                     format: vk::Format::R32G32B32A32_SFLOAT,
-                    offset: offset_of!(geometry::platonic::Vertex, normal) as u32,
+                    offset: offset_of!(geometry::Vertex, normal) as u32,
                 },
                 vk::VertexInputAttributeDescription {
                     location: 2,
                     binding: 0,
                     format: vk::Format::R32G32B32A32_SFLOAT,
-                    offset: offset_of!(geometry::platonic::Vertex, color) as u32,
+                    offset: offset_of!(geometry::Vertex, color) as u32,
                 },
             ];
             let vertex_input_state_info = vk::PipelineVertexInputStateCreateInfo {
@@ -896,109 +924,6 @@ impl DemoContext {
             res = Some(key);
         }
         res
-    }
-
-    pub fn create_gbuffer(&mut self, width: u32, height: u32) {
-        let mut render_targets: Vec<render::framebuffer::RenderTarget> = Vec::new();
-
-        render_targets.push(render::framebuffer::RenderTarget::new(
-            &self.device,
-            &self.device_memory_properties,
-            vk::Format::A2R10G10B10_UNORM_PACK32,
-            vk::ImageUsageFlags::COLOR_ATTACHMENT,
-            width,
-            height,
-            1,
-        ));
-
-        render_targets.push(render::framebuffer::RenderTarget::new(
-            &self.device,
-            &self.device_memory_properties,
-            vk::Format::R8G8B8A8_UNORM,
-            vk::ImageUsageFlags::COLOR_ATTACHMENT,
-            width,
-            height,
-            1,
-        ));
-
-        render_targets.push(render::framebuffer::RenderTarget::new(
-            &self.device,
-            &self.device_memory_properties,
-            vk::Format::R8G8B8A8_UNORM,
-            vk::ImageUsageFlags::COLOR_ATTACHMENT,
-            width,
-            height,
-            1,
-        ));
-
-        render_targets.push(render::framebuffer::RenderTarget::new(
-            &self.device,
-            &self.device_memory_properties,
-            vk::Format::R16G16B16A16_SFLOAT,
-            vk::ImageUsageFlags::COLOR_ATTACHMENT,
-            width,
-            height,
-            1,
-        ));
-
-        render_targets.push(render::framebuffer::RenderTarget::new(
-            &self.device,
-            &self.device_memory_properties,
-            vk::Format::D24_UNORM_S8_UINT,
-            vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-            width,
-            height,
-            1,
-        ));
-
-        let attachments_descs: Vec<vk::AttachmentDescription> = render_targets
-            .iter()
-            .map(|rt| {
-                vk::AttachmentDescription::builder()
-                    .format(rt.format)
-                    .final_layout(if rt.format == vk::Format::D24_UNORM_S8_UINT {
-                        vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL
-                    } else {
-                        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
-                    })
-                    .initial_layout(vk::ImageLayout::UNDEFINED)
-                    .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-                    .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-                    .store_op(vk::AttachmentStoreOp::STORE)
-                    .load_op(vk::AttachmentLoadOp::CLEAR)
-                    .samples(vk::SampleCountFlags::TYPE_1)
-                    .build()
-            })
-            .collect();
-
-        let mut color_refs: Vec<vk::AttachmentReference> = Vec::new();
-        color_refs.push(vk::AttachmentReference {
-            attachment: 0,
-            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        });
-        color_refs.push(vk::AttachmentReference {
-            attachment: 1,
-            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        });
-        color_refs.push(vk::AttachmentReference {
-            attachment: 2,
-            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        });
-        color_refs.push(vk::AttachmentReference {
-            attachment: 3,
-            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        });
-
-        let depth_ref = vk::AttachmentReference {
-            attachment: 4,
-            layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        };
-
-        let subpass_desc = vk::SubpassDescription::builder()
-            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-            .color_attachments(color_refs.as_slice())
-            .depth_stencil_attachment(&depth_ref)
-            .build();
     }
 }
 

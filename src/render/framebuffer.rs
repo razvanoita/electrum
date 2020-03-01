@@ -89,12 +89,33 @@ impl RenderTarget {
             }
         }
     }
+
+    pub fn destroy(&self, device: &ash::Device) {
+        unsafe {
+            device.destroy_image_view(self.view, None);
+            device.destroy_image(self.image, None);
+            device.free_memory(self.memory, None);
+        }
+    }
 }
 
 pub struct Framebuffer {
-    width: u32,
-    height: u32,
-    framebuffer: vk::Framebuffer,
-    render_pass: vk::RenderPass,
-    render_targets: Vec<RenderTarget>,
+    pub width: u32,
+    pub height: u32,
+    pub framebuffer: vk::Framebuffer,
+    pub render_pass: vk::RenderPass,
+    pub render_targets: Vec<RenderTarget>,
+}
+
+impl Framebuffer {
+    pub fn destroy(&self, device: &ash::Device) {
+        unsafe {
+            self.render_targets.iter().for_each(|rt| {
+                rt.destroy(device);
+            });
+
+            device.destroy_framebuffer(self.framebuffer, None);
+            device.destroy_render_pass(self.render_pass, None);
+        }
+    }
 }

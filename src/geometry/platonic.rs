@@ -1,17 +1,8 @@
 
 use cgmath::prelude::InnerSpace;
 
-#[derive(Clone, Debug, Copy)]
-pub struct Vertex {
-    pub position: [f32; 4],
-    pub normal: [f32; 4],
-    pub color: [f32; 4]
-}
-
-pub struct GeometryData {
-    pub vertices: Vec<Vertex>,
-    pub indices: Vec<u32>
-}
+use crate::geometry::GeometryData;
+use crate::geometry::Vertex;
 
 const SQRT_OF_2: f32 = 1.41421356237309504880;
 const SQRT_OF_3: f32 = 1.73205080757;
