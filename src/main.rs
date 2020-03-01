@@ -266,24 +266,24 @@ fn main() {
                 final_layout: vk::ImageLayout::PRESENT_SRC_KHR,
                 ..Default::default()
             },
-            vk::AttachmentDescription {
-                format: vk::Format::D16_UNORM,
-                samples: vk::SampleCountFlags::TYPE_1,
-                load_op: vk::AttachmentLoadOp::CLEAR,
-                initial_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                ..Default::default()
-            },
+            // vk::AttachmentDescription {
+            //     format: vk::Format::D16_UNORM,
+            //     samples: vk::SampleCountFlags::TYPE_1,
+            //     load_op: vk::AttachmentLoadOp::CLEAR,
+            //     initial_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            //     final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            //     ..Default::default()
+            // },
         ];
 
         let color_attachment_refs = [vk::AttachmentReference {
             attachment: 0,
             layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
         }];
-        let depth_attachment_ref = vk::AttachmentReference {
-            attachment: 1,
-            layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        };
+        // let depth_attachment_ref = vk::AttachmentReference {
+        //     attachment: 1,
+        //     layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        // };
 
         let dependencies = [vk::SubpassDependency {
             src_subpass: vk::SUBPASS_EXTERNAL,
@@ -296,7 +296,7 @@ fn main() {
 
         let subpasses = [vk::SubpassDescription::builder()
             .color_attachments(&color_attachment_refs)
-            .depth_stencil_attachment(&depth_attachment_ref)
+            //.depth_stencil_attachment(&depth_attachment_ref)
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
             .build()];
 
@@ -329,10 +329,102 @@ fn main() {
             .collect();
 
         // --- create shaders
-        demo.add_shader("copper/shaders/bin/triangle_vert.spv");
-        demo.add_shader("copper/shaders/bin/triangle_frag.spv");
-        demo.add_shader("copper/shaders/bin/triangle_noise_vert.spv");
-        demo.add_shader("copper/shaders/bin/triangle_noise_frag.spv");
+        // demo.add_shader("copper/shaders/bin/triangle_vert.spv");
+        // demo.add_shader("copper/shaders/bin/triangle_frag.spv");
+        // demo.add_shader("copper/shaders/bin/triangle_noise_vert.spv");
+        // demo.add_shader("copper/shaders/bin/triangle_noise_frag.spv");
+        demo.add_shader("copper/shaders/bin/gbuffer_vert.spv");
+        demo.add_shader("copper/shaders/bin/gbuffer_frag.spv");
+        demo.add_shader("copper/shaders/bin/deferred_vert.spv");
+        demo.add_shader("copper/shaders/bin/deferred_frag.spv");
+
+        // --- prepare for deferred
+        let gbuffer = create_gbuffer(&demo.device, &demo.device_memory_properties, demo.surface_resolution.width, demo.surface_resolution.height);
+        let (color_sampler, depth_sampler) = create_samplers(&demo.device);
+
+        let gbuffer_color_blend_attachment_states = vec![vk::PipelineColorBlendAttachmentState {
+            blend_enable: 0,
+            src_color_blend_factor: vk::BlendFactor::SRC_COLOR,
+            dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_DST_COLOR,
+            color_blend_op: vk::BlendOp::ADD,
+            src_alpha_blend_factor: vk::BlendFactor::ZERO,
+            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
+            alpha_blend_op: vk::BlendOp::ADD,
+            color_write_mask: vk::ColorComponentFlags::all(),
+        }; 3];
+        let deferred_color_blend_attachment_states = vec![vk::PipelineColorBlendAttachmentState {
+            blend_enable: 0,
+            src_color_blend_factor: vk::BlendFactor::SRC_COLOR,
+            dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_DST_COLOR,
+            color_blend_op: vk::BlendOp::ADD,
+            src_alpha_blend_factor: vk::BlendFactor::ZERO,
+            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
+            alpha_blend_op: vk::BlendOp::ADD,
+            color_write_mask: vk::ColorComponentFlags::all(),
+        }; 1];
+
+        let gbuffer_descriptor_set_layout = demo.create_descriptor_set_layout(
+            vec![
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::VERTEX,
+                    binding: 0,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::VERTEX,
+                    binding: 1,
+                    ..Default::default()
+                },
+            ]
+        );
+        let gbuffer_pipeline_layout = demo.create_pipeline_layout(gbuffer_descriptor_set_layout);
+
+        // --- gbuffer
+        let deferred_descriptor_set_layout = demo.create_descriptor_set_layout(
+            vec![
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    binding: 0,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    binding: 1,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    binding: 2,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    binding: 3,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    binding: 4,
+                    ..Default::default()
+                },
+            ]
+        );
+        let deferred_pipeline_layout = demo.create_pipeline_layout(deferred_descriptor_set_layout);
+
         // --- create platonic solids
         let copy_command_buffer_0 = demo.get_and_begin_command_buffer();
         let tetrahedron_mesh = geometry::mesh(
@@ -372,9 +464,12 @@ fn main() {
             ))
             .with_component(components::Component::MaterialComponent(
                 components::Material {
-                    vertex_shader: demo.get_shader_module("copper/shaders/bin/triangle_vert.spv"),
-                    fragment_shader: demo.get_shader_module("copper/shaders/bin/triangle_frag.spv"),
+                    vertex_shader: demo.get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
+                    fragment_shader: demo.get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
                     pso: vk::Pipeline::null(),
+                    render_pass: gbuffer.render_pass,
+                    pipeline_layout: gbuffer_pipeline_layout,
+                    color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
                 },
             ))
             .build();
@@ -417,9 +512,12 @@ fn main() {
             ))
             .with_component(components::Component::MaterialComponent(
                 components::Material {
-                    vertex_shader: demo.get_shader_module("copper/shaders/bin/triangle_vert.spv"),
-                    fragment_shader: demo.get_shader_module("copper/shaders/bin/triangle_frag.spv"),
+                    vertex_shader: demo.get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
+                    fragment_shader: demo.get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
                     pso: vk::Pipeline::null(),
+                    render_pass: gbuffer.render_pass,
+                    pipeline_layout: gbuffer_pipeline_layout,
+                    color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
                 },
             ))
             .build();
@@ -462,9 +560,12 @@ fn main() {
             ))
             .with_component(components::Component::MaterialComponent(
                 components::Material {
-                    vertex_shader: demo.get_shader_module("copper/shaders/bin/triangle_vert.spv"),
-                    fragment_shader: demo.get_shader_module("copper/shaders/bin/triangle_frag.spv"),
+                    vertex_shader: demo.get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
+                    fragment_shader: demo.get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
                     pso: vk::Pipeline::null(),
+                    render_pass: gbuffer.render_pass,
+                    pipeline_layout: gbuffer_pipeline_layout,
+                    color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
                 },
             ))
             .build();
@@ -508,10 +609,13 @@ fn main() {
             .with_component(components::Component::MaterialComponent(
                 components::Material {
                     vertex_shader: demo
-                        .get_shader_module("copper/shaders/bin/triangle_noise_vert.spv"),
+                        .get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
                     fragment_shader: demo
-                        .get_shader_module("copper/shaders/bin/triangle_noise_frag.spv"),
+                        .get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
                     pso: vk::Pipeline::null(),
+                    render_pass: gbuffer.render_pass,
+                    pipeline_layout: gbuffer_pipeline_layout,
+                    color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
                 },
             ))
             .build();
@@ -555,10 +659,13 @@ fn main() {
             .with_component(components::Component::MaterialComponent(
                 components::Material {
                     vertex_shader: demo
-                        .get_shader_module("copper/shaders/bin/triangle_noise_vert.spv"),
+                        .get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
                     fragment_shader: demo
-                        .get_shader_module("copper/shaders/bin/triangle_noise_frag.spv"),
+                        .get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
                     pso: vk::Pipeline::null(),
+                    render_pass: gbuffer.render_pass,
+                    pipeline_layout: gbuffer_pipeline_layout,
+                    color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
                 },
             ))
             .build();
@@ -654,95 +761,6 @@ fn main() {
             )
         );
 
-        let gbuffer_descriptor_set_layout = demo.create_descriptor_set_layout(
-            vec![
-                vk::DescriptorSetLayoutBinding {
-                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::VERTEX,
-                    binding: 0,
-                    ..Default::default()
-                },
-                vk::DescriptorSetLayoutBinding {
-                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::VERTEX,
-                    binding: 1,
-                    ..Default::default()
-                },
-                vk::DescriptorSetLayoutBinding {
-                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                    binding: 2,
-                    ..Default::default()
-                },
-            ]
-        );
-        let gbuffer_pipeline_layout = demo.create_pipeline_layout(gbuffer_descriptor_set_layout);
-
-        // --- gbuffer
-        let deferred_descriptor_set_layout = demo.create_descriptor_set_layout(
-            vec![
-                vk::DescriptorSetLayoutBinding {
-                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::VERTEX,
-                    binding: 0,
-                    ..Default::default()
-                },
-                vk::DescriptorSetLayoutBinding {
-                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                    binding: 1,
-                    ..Default::default()
-                },
-                vk::DescriptorSetLayoutBinding {
-                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                    binding: 2,
-                    ..Default::default()
-                },
-                vk::DescriptorSetLayoutBinding {
-                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                    binding: 3,
-                    ..Default::default()
-                },
-                vk::DescriptorSetLayoutBinding {
-                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                    binding: 4,
-                    ..Default::default()
-                },
-                vk::DescriptorSetLayoutBinding {
-                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                    binding: 5,
-                    ..Default::default()
-                },
-            ]
-        );
-        let deferred_pipeline_layout = demo.create_pipeline_layout(deferred_descriptor_set_layout);
-
-        // --- descriptor set layout
-        demo.setup_descriptor_set_layout();
-
-        let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo {
-            set_layout_count: 1,
-            p_set_layouts: demo.descriptor_set_layouts.as_ptr(),
-            ..Default::default()
-        };
-        let pipeline_layout = demo
-            .device
-            .create_pipeline_layout(&pipeline_layout_create_info, None)
-            .unwrap();
-
         let viewports = [vk::Viewport {
             x: 0.0,
             y: 0.0,
@@ -755,10 +773,6 @@ fn main() {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent: demo.surface_resolution.clone(),
         }];
-
-        // --- prepare for deferred
-        let gbuffer = create_gbuffer(&demo.device, &demo.device_memory_properties, demo.surface_resolution.width, demo.surface_resolution.height);
-        let (color_sampler, depth_sampler) = create_samplers(&demo.device);
 
         let ccb = demo.get_and_begin_command_buffer();
         let fullscreen_quad = geometry::mesh(
@@ -813,17 +827,77 @@ fn main() {
                 entry.component.pso = demo.create_pso(
                     entry.component.vertex_shader,
                     entry.component.fragment_shader,
-                    renderpass,
-                    pipeline_layout,
+                    entry.component.render_pass,
+                    entry.component.pipeline_layout,
                     viewports,
                     scissors,
+                    &entry.component.color_blend_attachment_states,
+                    demo::PSOCreateOption::HasVertexAttributes,
                 );
             });
 
-        // --- setup descriptor pool
-        demo.setup_descriptor_pool();
+        // --- build deferred pass pso
+        let deferred_pso = demo.create_pso(
+            demo.get_shader_module("copper/shaders/bin/deferred_vert.spv"),
+            demo.get_shader_module("copper/shaders/bin/deferred_frag.spv"),
+            renderpass,
+            deferred_pipeline_layout,
+            viewports,
+            scissors,
+            &deferred_color_blend_attachment_states,
+            demo::PSOCreateOption::NoVertexAttributes,
+        );
 
-        // --- setup descriptor set
+        // --- setup descriptor pool
+        let descriptor_pool_sizes = vec![
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: 1,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+                descriptor_count: 1,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: 5,
+            },
+        ];
+        demo.create_descriptor_pool(descriptor_pool_sizes);
+
+        // --- setup descriptor sets
+        let deferred_descriptor_set_info = vk::DescriptorSetAllocateInfo::builder()
+            .set_layouts(&[deferred_descriptor_set_layout])
+            .descriptor_pool(demo.descriptor_pool)
+            .build();
+        let deferred_descriptor_set = demo.device.allocate_descriptor_sets(&deferred_descriptor_set_info).unwrap();
+
+        let gbuffer_info_0 = vk::DescriptorImageInfo::builder()
+            .sampler(color_sampler)
+            .image_view(gbuffer.render_targets[0].view)
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .build();
+        let gbuffer_info_1 = vk::DescriptorImageInfo::builder()
+            .sampler(color_sampler)
+            .image_view(gbuffer.render_targets[1].view)
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .build();
+        let gbuffer_info_2 = vk::DescriptorImageInfo::builder()
+            .sampler(color_sampler)
+            .image_view(gbuffer.render_targets[2].view)
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .build();
+        let gbuffer_info_3 = vk::DescriptorImageInfo::builder()
+            .sampler(color_sampler)
+            .image_view(gbuffer.render_targets[3].view)
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .build();
+        let gbuffer_info_4 = vk::DescriptorImageInfo::builder()
+            .sampler(depth_sampler)
+            .image_view(gbuffer.render_targets[4].view)
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .build();
+
         demo.setup_descriptor_sets();
         let write_descriptor_sets = [
             vk::WriteDescriptorSet::builder()
@@ -877,10 +951,12 @@ fn main() {
                         entry.component.pso = demo.create_pso(
                             entry.component.vertex_shader,
                             entry.component.fragment_shader,
-                            renderpass,
-                            pipeline_layout,
+                            entry.component.render_pass,
+                            entry.component.pipeline_layout,
                             viewports,
                             scissors,
+                            &entry.component.color_blend_attachment_states,
+                            demo::PSOCreateOption::HasVertexAttributes
                         );
                     });
 
@@ -1030,7 +1106,7 @@ fn main() {
                             device.cmd_bind_descriptor_sets(
                                 draw_command_buffer,
                                 vk::PipelineBindPoint::GRAPHICS,
-                                pipeline_layout,
+                                gbuffer_pipeline_layout,
                                 0,
                                 &demo.descriptor_sets,
                                 &[dynamic_offset * dynamic_alignment as u32],
@@ -1087,7 +1163,11 @@ fn main() {
                 demo.device.destroy_pipeline(entry.component.pso, None);
             });
 
-        demo.device.destroy_pipeline_layout(pipeline_layout, None);
+        demo.device.destroy_pipeline_layout(gbuffer_pipeline_layout, None);
+        demo.device.destroy_pipeline_layout(deferred_pipeline_layout, None);
+
+        demo.device.destroy_descriptor_set_layout(gbuffer_descriptor_set_layout, None);
+        demo.device.destroy_descriptor_set_layout(deferred_descriptor_set_layout, None);
 
         let mesh_filter = components::ComponentType::MeshComponent as u32;
         world

@@ -209,7 +209,6 @@ pub struct DemoContext {
     pub present_complete_semaphore: vk::Semaphore,
     pub rendering_complete_semaphore: vk::Semaphore,
 
-    pub descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
 
@@ -219,6 +218,15 @@ pub struct DemoContext {
     pub watcher_rx: std::sync::mpsc::Receiver<std::path::PathBuf>,
     event_collecter: Vec<std::path::PathBuf>,
     ready_to_process_asset_events: bool,
+}
+
+#[derive(Clone, Debug, Copy)]
+pub enum PSOCreateOption {
+    // --- flags
+    HasVertexAttributes = 0b0000_0000_0000_0001,
+
+    // --- constants
+    NoVertexAttributes = 0b0000_0000_0000_0000,
 }
 
 impl DemoApp {
@@ -598,7 +606,6 @@ impl DemoApp {
                 debug_call_back: debug_call_back,
                 debug_report_loader: debug_report_loader,
                 depth_image_memory: depth_image_memory,
-                descriptor_set_layouts: Vec::default(),
                 descriptor_pool: vk::DescriptorPool::null(),
                 descriptor_sets: Vec::default(),
                 shader_modules: HashMap::default(),
@@ -664,48 +671,8 @@ impl DemoContext {
         }
     }
 
-    pub fn setup_descriptor_set_layout(&mut self) {
+    pub fn create_descriptor_pool(&mut self, descriptor_pool_sizes: Vec<vk::DescriptorPoolSize>) {
         unsafe {
-            let decriptor_set_layout_bindings = [
-                vk::DescriptorSetLayoutBinding {
-                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::VERTEX,
-                    binding: 0,
-                    ..Default::default()
-                },
-                vk::DescriptorSetLayoutBinding {
-                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::VERTEX,
-                    binding: 1,
-                    ..Default::default()
-                },
-            ];
-            let descriptor_set_layout_info = vk::DescriptorSetLayoutCreateInfo {
-                binding_count: decriptor_set_layout_bindings.len() as u32,
-                p_bindings: decriptor_set_layout_bindings.as_ptr(),
-                ..Default::default()
-            };
-            self.descriptor_set_layouts = vec![self
-                .device
-                .create_descriptor_set_layout(&descriptor_set_layout_info, None)
-                .unwrap()];
-        }
-    }
-
-    pub fn setup_descriptor_pool(&mut self) {
-        unsafe {
-            let descriptor_pool_sizes = [
-                vk::DescriptorPoolSize {
-                    ty: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: 1,
-                },
-                vk::DescriptorPoolSize {
-                    ty: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
-                    descriptor_count: 1,
-                },
-            ];
             let descriptor_pool_create_info = vk::DescriptorPoolCreateInfo {
                 pool_size_count: descriptor_pool_sizes.len() as u32,
                 p_pool_sizes: descriptor_pool_sizes.as_ptr(),
@@ -720,18 +687,18 @@ impl DemoContext {
     }
 
     pub fn setup_descriptor_sets(&mut self) {
-        unsafe {
-            let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo {
-                descriptor_pool: self.descriptor_pool,
-                descriptor_set_count: 1,
-                p_set_layouts: self.descriptor_set_layouts.as_ptr(),
-                ..Default::default()
-            };
-            self.descriptor_sets = self
-                .device
-                .allocate_descriptor_sets(&descriptor_set_alloc_info)
-                .unwrap();
-        }
+        // unsafe {
+        //     let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo {
+        //         descriptor_pool: self.descriptor_pool,
+        //         descriptor_set_count: 1,
+        //         p_set_layouts: self.descriptor_set_layouts.as_ptr(),
+        //         ..Default::default()
+        //     };
+        //     self.descriptor_sets = self
+        //         .device
+        //         .allocate_descriptor_sets(&descriptor_set_alloc_info)
+        //         .unwrap();
+        // }
     }
 
     pub fn add_shader(&mut self, shader_path: &str) {
@@ -773,6 +740,8 @@ impl DemoContext {
         pipeline_layout: vk::PipelineLayout,
         viewports: [vk::Viewport; 1],
         scissors: [vk::Rect2D; 1],
+        color_blend_attachment_states: &[vk::PipelineColorBlendAttachmentState],
+        create_flags: PSOCreateOption,
     ) -> vk::Pipeline {
         unsafe {
             let shader_entry_name = CString::new("main").unwrap();
@@ -816,12 +785,16 @@ impl DemoContext {
                     offset: offset_of!(geometry::Vertex, color) as u32,
                 },
             ];
-            let vertex_input_state_info = vk::PipelineVertexInputStateCreateInfo {
-                vertex_attribute_description_count: vertex_input_attribute_descs.len() as u32,
-                p_vertex_attribute_descriptions: vertex_input_attribute_descs.as_ptr(),
-                vertex_binding_description_count: vertex_input_binding_descs.len() as u32,
-                p_vertex_binding_descriptions: vertex_input_binding_descs.as_ptr(),
-                ..Default::default()
+            let vertex_input_state_info = if (create_flags as u32) & (PSOCreateOption::HasVertexAttributes as u32) == (PSOCreateOption::HasVertexAttributes as u32) {
+                vk::PipelineVertexInputStateCreateInfo {
+                    vertex_attribute_description_count: vertex_input_attribute_descs.len() as u32,
+                    p_vertex_attribute_descriptions: vertex_input_attribute_descs.as_ptr(),
+                    vertex_binding_description_count: vertex_input_binding_descs.len() as u32,
+                    p_vertex_binding_descriptions: vertex_input_binding_descs.as_ptr(),
+                    ..Default::default()
+                }
+            } else {
+                vk::PipelineVertexInputStateCreateInfo::default()
             };
             let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
                 topology: vk::PrimitiveTopology::TRIANGLE_LIST,
@@ -856,16 +829,6 @@ impl DemoContext {
                 max_depth_bounds: 1.0,
                 ..Default::default()
             };
-            let color_blend_attachment_states = [vk::PipelineColorBlendAttachmentState {
-                blend_enable: 0,
-                src_color_blend_factor: vk::BlendFactor::SRC_COLOR,
-                dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_DST_COLOR,
-                color_blend_op: vk::BlendOp::ADD,
-                src_alpha_blend_factor: vk::BlendFactor::ZERO,
-                dst_alpha_blend_factor: vk::BlendFactor::ZERO,
-                alpha_blend_op: vk::BlendOp::ADD,
-                color_write_mask: vk::ColorComponentFlags::all(),
-            }];
             let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
                 .logic_op(vk::LogicOp::CLEAR)
                 .attachments(&color_blend_attachment_states);
@@ -934,9 +897,6 @@ impl Drop for DemoContext {
                 self.device.destroy_shader_module(*v, None);
             });
 
-            for layout in self.descriptor_set_layouts.iter() {
-                self.device.destroy_descriptor_set_layout(*layout, None);
-            }
             self.device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
 

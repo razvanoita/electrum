@@ -25,6 +25,9 @@ pub struct Material {
     pub vertex_shader: vk::ShaderModule,
     pub fragment_shader: vk::ShaderModule,
     pub pso: vk::Pipeline,
+    pub render_pass: vk::RenderPass,
+    pub pipeline_layout: vk::PipelineLayout,
+    pub color_blend_attachment_states: Vec<vk::PipelineColorBlendAttachmentState>
 }
 
 pub enum Component {

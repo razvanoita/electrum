@@ -313,7 +313,7 @@ fn run_server() -> io::Result<()> {
                 terminal.write_line(&format!("{}", style("Build failed!").red()));
                 terminal.write_line(&format!(
                     "stderr: {}",
-                    String::from_utf8_lossy(&output.stderr)
+                    String::from_utf8_lossy(&output.stdout)
                 ));
             }
         }
@@ -407,7 +407,7 @@ fn run_server() -> io::Result<()> {
                 ));
                 terminal.write_line(&format!(
                     "stderr: {}",
-                    String::from_utf8_lossy(&output.stderr)
+                    String::from_utf8_lossy(&output.stdout)
                 ));
             }
         }
