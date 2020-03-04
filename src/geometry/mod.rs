@@ -165,9 +165,9 @@ pub fn quad() -> GeometryData {
         };
         
         let base = data.vertices.len() as u32;
-        data.indices.push(base + 2);
-        data.indices.push(base + 1);
         data.indices.push(base);
+        data.indices.push(base + 1);
+        data.indices.push(base + 2); 
 
         data.vertices.push(
             Vertex {

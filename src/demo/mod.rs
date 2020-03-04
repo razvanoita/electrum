@@ -38,6 +38,32 @@ macro_rules! offset_of {
     }};
 }
 
+pub fn record_command_buffer<D: DeviceV1_0, F: FnOnce(&D, vk::CommandBuffer)>(
+    device: &D,
+    command_buffer: vk::CommandBuffer,
+    f: F,
+) {
+    unsafe {
+        device
+            .reset_command_buffer(
+                command_buffer,
+                vk::CommandBufferResetFlags::RELEASE_RESOURCES,
+            )
+            .expect("Failed to reset command buffer!");
+
+        let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        device
+            .begin_command_buffer(command_buffer, &command_buffer_begin_info)
+            .expect("Failed to begin command buffer!");
+        f(device, command_buffer);
+        device
+            .end_command_buffer(command_buffer)
+            .expect("Failed to end command buffer!");
+    }
+}
+
 pub fn record_submit_command_buffer<D: DeviceV1_0, F: FnOnce(&D, vk::CommandBuffer)>(
     device: &D,
     command_buffer: vk::CommandBuffer,
@@ -199,7 +225,8 @@ pub struct DemoContext {
     pub present_image_views: Vec<vk::ImageView>,
 
     pub pool: vk::CommandPool,
-    pub draw_command_buffer: vk::CommandBuffer,
+    pub draw_command_buffers: Vec<vk::CommandBuffer>,
+    pub dcb_wait_fences: Vec<vk::Fence>,
     pub setup_command_buffer: vk::CommandBuffer,
 
     pub depth_image: vk::Image,
@@ -439,16 +466,15 @@ impl DemoApp {
                 .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
                 .queue_family_index(queue_family_index);
             let pool = device.create_command_pool(&pool_create_info, None).unwrap();
-            let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-                .command_buffer_count(2)
+            let setup_command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+                .command_buffer_count(1)
                 .command_pool(pool)
                 .level(vk::CommandBufferLevel::PRIMARY);
-            let command_buffers = device
-                .allocate_command_buffers(&command_buffer_allocate_info)
+            let setup_command_buffers = device
+                .allocate_command_buffers(&setup_command_buffer_allocate_info)
                 .unwrap();
 
-            let setup_command_buffer = command_buffers[0];
-            let draw_command_buffer = command_buffers[1];
+            let setup_command_buffer = setup_command_buffers[0];
 
             let present_images = swapchain_loader.get_swapchain_images(swapchain).unwrap();
             let present_image_views: Vec<vk::ImageView> = present_images
@@ -474,6 +500,22 @@ impl DemoApp {
                     device.create_image_view(&create_view_info, None).unwrap()
                 })
                 .collect();
+
+            let draw_command_buffers_allocte_info = vk::CommandBufferAllocateInfo::builder()
+                .command_buffer_count(present_images.len() as u32)
+                .command_pool(pool)
+                .level(vk::CommandBufferLevel::PRIMARY);
+            let draw_command_buffers = device
+                .allocate_command_buffers(&draw_command_buffers_allocte_info)
+                .unwrap();
+
+            let fence_create_info = vk::FenceCreateInfo::builder()
+                    .flags(vk::FenceCreateFlags::SIGNALED)
+                    .build();
+            let mut wait_fences: Vec<vk::Fence> = Vec::default();
+            for i in 0..present_images.len() {
+                wait_fences.push(device.create_fence(&fence_create_info, None).unwrap());
+            }            
 
             let device_memory_properties =
                 instance.get_physical_device_memory_properties(physical_device);
@@ -596,7 +638,8 @@ impl DemoApp {
                 present_images: present_images,
                 present_image_views: present_image_views,
                 pool: pool,
-                draw_command_buffer: draw_command_buffer,
+                draw_command_buffers: draw_command_buffers,
+                dcb_wait_fences: wait_fences,
                 setup_command_buffer: setup_command_buffer,
                 depth_image: depth_image,
                 depth_image_view: depth_image_view,
@@ -619,6 +662,22 @@ impl DemoApp {
 }
 
 impl DemoContext {
+    pub fn get_command_buffer(&self) -> vk::CommandBuffer {
+        unsafe {
+            let command_buffer_info = vk::CommandBufferAllocateInfo::builder()
+                .command_buffer_count(1)
+                .command_pool(self.pool)
+                .level(vk::CommandBufferLevel::PRIMARY);
+            let command_buffers = self
+                .device
+                .allocate_command_buffers(&command_buffer_info)
+                .unwrap();
+            let command_buffer = command_buffers[0];
+
+            command_buffer
+        }
+    }
+
     pub fn get_and_begin_command_buffer(&self) -> vk::CommandBuffer {
         unsafe {
             let command_buffer_info = vk::CommandBufferAllocateInfo::builder()
@@ -684,21 +743,6 @@ impl DemoContext {
                 .create_descriptor_pool(&descriptor_pool_create_info, None)
                 .unwrap();
         }
-    }
-
-    pub fn setup_descriptor_sets(&mut self) {
-        // unsafe {
-        //     let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo {
-        //         descriptor_pool: self.descriptor_pool,
-        //         descriptor_set_count: 1,
-        //         p_set_layouts: self.descriptor_set_layouts.as_ptr(),
-        //         ..Default::default()
-        //     };
-        //     self.descriptor_sets = self
-        //         .device
-        //         .allocate_descriptor_sets(&descriptor_set_alloc_info)
-        //         .unwrap();
-        // }
     }
 
     pub fn add_shader(&mut self, shader_path: &str) {

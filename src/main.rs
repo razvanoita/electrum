@@ -266,24 +266,24 @@ fn main() {
                 final_layout: vk::ImageLayout::PRESENT_SRC_KHR,
                 ..Default::default()
             },
-            // vk::AttachmentDescription {
-            //     format: vk::Format::D16_UNORM,
-            //     samples: vk::SampleCountFlags::TYPE_1,
-            //     load_op: vk::AttachmentLoadOp::CLEAR,
-            //     initial_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            //     final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            //     ..Default::default()
-            // },
+            vk::AttachmentDescription {
+                format: vk::Format::D16_UNORM,
+                samples: vk::SampleCountFlags::TYPE_1,
+                load_op: vk::AttachmentLoadOp::CLEAR,
+                initial_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                ..Default::default()
+            },
         ];
 
         let color_attachment_refs = [vk::AttachmentReference {
             attachment: 0,
             layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
         }];
-        // let depth_attachment_ref = vk::AttachmentReference {
-        //     attachment: 1,
-        //     layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        // };
+        let depth_attachment_ref = vk::AttachmentReference {
+            attachment: 1,
+            layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        };
 
         let dependencies = [vk::SubpassDependency {
             src_subpass: vk::SUBPASS_EXTERNAL,
@@ -296,7 +296,7 @@ fn main() {
 
         let subpasses = [vk::SubpassDescription::builder()
             .color_attachments(&color_attachment_refs)
-            //.depth_stencil_attachment(&depth_attachment_ref)
+            .depth_stencil_attachment(&depth_attachment_ref)
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
             .build()];
 
@@ -329,10 +329,6 @@ fn main() {
             .collect();
 
         // --- create shaders
-        // demo.add_shader("copper/shaders/bin/triangle_vert.spv");
-        // demo.add_shader("copper/shaders/bin/triangle_frag.spv");
-        // demo.add_shader("copper/shaders/bin/triangle_noise_vert.spv");
-        // demo.add_shader("copper/shaders/bin/triangle_noise_frag.spv");
         demo.add_shader("copper/shaders/bin/gbuffer_vert.spv");
         demo.add_shader("copper/shaders/bin/gbuffer_frag.spv");
         demo.add_shader("copper/shaders/bin/deferred_vert.spv");
@@ -783,40 +779,6 @@ fn main() {
             demo.present_queue,
         );
 
-        let ub_fullscreen_vs = render::buffer::UniformBuffer::construct(
-            &demo.device,
-            &demo.device_memory_properties,
-            1,
-            mem::size_of::<ViewData>() as u64,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            false,
-        );
-        demo.device
-            .bind_buffer_memory(ub_fullscreen_vs.descriptor.buffer, ub_fullscreen_vs.memory, 0)
-            .unwrap();
-        let ub_fullscreen_vs_ptr = demo
-            .device
-            .map_memory(
-                ub_fullscreen_vs.memory,
-                0,
-                ub_fullscreen_vs.descriptor.range,
-                vk::MemoryMapFlags::empty(),
-            )
-            .unwrap();
-
-        update_viewdata_uniform_buffer(
-            ub_fullscreen_vs_ptr,
-            mem::size_of::<ViewData>() as u64,
-            ub_fullscreen_vs.descriptor.range,
-            cgmath::ortho(0.0, 1.0, 0.0, 1.0, -1.0, 1.0),
-            cgmath::Matrix4::look_at(
-                cgmath::Point3::new(0.0, 0.0, 0.0),
-                cgmath::Point3::new(0.0, 0.0, 0.0),
-                cgmath::Vector3::new(0.0, 0.0, 0.0),
-            )
-        );
-
         // --- build PSOs for objects
         let material_filter = components::ComponentType::MaterialComponent as u32;
         world
@@ -870,7 +832,7 @@ fn main() {
             .set_layouts(&[deferred_descriptor_set_layout])
             .descriptor_pool(demo.descriptor_pool)
             .build();
-        let deferred_descriptor_set = demo.device.allocate_descriptor_sets(&deferred_descriptor_set_info).unwrap();
+        let deferred_descriptor_sets = demo.device.allocate_descriptor_sets(&deferred_descriptor_set_info).unwrap();
 
         let gbuffer_info_0 = vk::DescriptorImageInfo::builder()
             .sampler(color_sampler)
@@ -898,23 +860,193 @@ fn main() {
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .build();
 
-        demo.setup_descriptor_sets();
-        let write_descriptor_sets = [
+        let deferred_write_descriptor_sets = [
+            vk::WriteDescriptorSet::builder()
+                .dst_binding(0)
+                .image_info(&[gbuffer_info_0])
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .dst_set(deferred_descriptor_sets[0])
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_binding(1)
+                .image_info(&[gbuffer_info_1])
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .dst_set(deferred_descriptor_sets[0])
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_binding(2)
+                .image_info(&[gbuffer_info_2])
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .dst_set(deferred_descriptor_sets[0])
+                .build(),
+                vk::WriteDescriptorSet::builder()
+                .dst_binding(3)
+                .image_info(&[gbuffer_info_3])
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .dst_set(deferred_descriptor_sets[0])
+                .build(),
+                vk::WriteDescriptorSet::builder()
+                .dst_binding(4)
+                .image_info(&[gbuffer_info_4])
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .dst_set(deferred_descriptor_sets[0])
+                .build(),
+        ];
+
+        demo.device.update_descriptor_sets(&deferred_write_descriptor_sets, &[]);
+
+        let gbuffer_descriptor_set_info = vk::DescriptorSetAllocateInfo::builder()
+            .set_layouts(&[gbuffer_descriptor_set_layout])
+            .descriptor_pool(demo.descriptor_pool)
+            .build();
+        let gbuffer_descriptor_sets = demo.device.allocate_descriptor_sets(&gbuffer_descriptor_set_info).unwrap();
+
+        let gbuffer_write_descriptor_sets = [
             vk::WriteDescriptorSet::builder()
                 .dst_binding(0)
                 .buffer_info(&[ub_view_data.descriptor])
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .dst_set(demo.descriptor_sets[0])
+                .dst_set(gbuffer_descriptor_sets[0])
                 .build(),
             vk::WriteDescriptorSet::builder()
                 .dst_binding(1)
                 .buffer_info(&[ub_instance_data.descriptor])
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-                .dst_set(demo.descriptor_sets[0])
+                .dst_set(gbuffer_descriptor_sets[0])
                 .build(),
         ];
-        demo.device
-            .update_descriptor_sets(&write_descriptor_sets, &[]);
+
+        demo.device.update_descriptor_sets(&gbuffer_write_descriptor_sets, &[]);
+
+        // --- record command buffers for the deferred pass
+        for i in 0..demo.draw_command_buffers.len() {
+            demo::record_command_buffer(
+                &demo.device,
+                demo.draw_command_buffers[i],
+                |device, draw_command_buffer| {
+                    let clear_values = [
+                        vk::ClearValue {
+                            color: vk::ClearColorValue {
+                                float32: [0.0, 0.0, 0.0, 0.0],
+                            },
+                        },
+                        vk::ClearValue {
+                            depth_stencil: vk::ClearDepthStencilValue {
+                                depth: 1.0,
+                                stencil: 0,
+                            },
+                        },
+                    ];
+    
+                    let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+                        .render_pass(renderpass)
+                        .framebuffer(framebuffers[i as usize])
+                        .render_area(vk::Rect2D {
+                            offset: vk::Offset2D { x: 0, y: 0 },
+                            extent: demo.surface_resolution.clone(),
+                        })
+                        .clear_values(&clear_values);
+    
+                    device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
+                    device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
+                    device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
+    
+                    device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, deferred_pso);
+                    device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, deferred_pipeline_layout, 0, &deferred_descriptor_sets, &[0]);
+                    device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[fullscreen_quad.vertex_buffer.buffer], &[0]);
+                    device.cmd_bind_index_buffer(draw_command_buffer, fullscreen_quad.index_buffer.buffer, 0, vk::IndexType::UINT32);
+                    device.cmd_draw_indexed(draw_command_buffer, fullscreen_quad.index_buffer.count as u32, 1, 0, 0, 1);
+    
+                    device.cmd_end_render_pass(draw_command_buffer);
+                }
+            );
+        }
+
+        // --- record gbuffer command buffer
+        let gbuffer_command_buffer = demo.get_command_buffer();
+
+        let semaphore_create_info = vk::SemaphoreCreateInfo::default();
+        let gbuffer_semaphore = demo.device.create_semaphore(&semaphore_create_info, None).unwrap();
+
+        demo::record_command_buffer(
+            &demo.device,
+            gbuffer_command_buffer,
+            |device, draw_command_buffer| {
+                let clear_values = [
+                    vk::ClearValue {
+                        color: vk::ClearColorValue {
+                            float32: [0.0, 0.0, 0.0, 0.0],
+                        },
+                    },
+                    vk::ClearValue {
+                        color: vk::ClearColorValue {
+                            float32: [0.0, 0.0, 0.0, 0.0],
+                        },
+                    },
+                    vk::ClearValue {
+                        color: vk::ClearColorValue {
+                            float32: [0.0, 0.0, 0.0, 0.0],
+                        },
+                    },
+                    vk::ClearValue {
+                        color: vk::ClearColorValue {
+                            float32: [0.0, 0.0, 0.0, 0.0],
+                        },
+                    },
+                    vk::ClearValue {
+                        depth_stencil: vk::ClearDepthStencilValue {
+                            depth: 1.0,
+                            stencil: 0,
+                        },
+                    },
+                ];
+
+                let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+                    .render_pass(gbuffer.render_pass)
+                    .framebuffer(gbuffer.framebuffer)
+                    .render_area(vk::Rect2D {
+                        offset: vk::Offset2D { x: 0, y: 0 },
+                        extent: demo.surface_resolution.clone(),
+                    })
+                    .clear_values(&clear_values);
+
+                device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
+                device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
+                device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
+                let mut dynamic_offset = 0;
+
+                let mesh_material_filter = (components::ComponentType::MeshComponent as u32)
+                    | (components::ComponentType::MaterialComponent as u32);
+                world
+                    .mesh_storage
+                    .iter()
+                    .filter(|entry| {
+                        entry.storage_type & mesh_material_filter == mesh_material_filter
+                    })
+                    .zip(world.material_storage.iter().filter(|entry| {
+                        entry.storage_type & mesh_material_filter == mesh_material_filter
+                    }))
+                    .for_each(|(mesh, material)| {
+                        device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, material.component.pso);
+
+                        device.cmd_bind_descriptor_sets(
+                            draw_command_buffer,
+                            vk::PipelineBindPoint::GRAPHICS,
+                            gbuffer_pipeline_layout,
+                            0,
+                            &gbuffer_descriptor_sets,
+                            &[dynamic_offset * dynamic_alignment as u32],
+                        );
+
+                        device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[mesh.component.vertex_buffer.buffer], &[0]);
+                        device.cmd_bind_index_buffer(draw_command_buffer, mesh.component.index_buffer.buffer, 0, vk::IndexType::UINT32);
+                        device.cmd_draw_indexed(draw_command_buffer, mesh.component.index_buffer.count as u32, 1, 0, 0, 1);
+                        dynamic_offset += 1;
+                    });
+
+                device.cmd_end_render_pass(draw_command_buffer);
+            },
+        );        
 
         let dt: f32 = 1.0 / 60.0;
         let mut current_time = std::time::SystemTime::now();
@@ -1036,107 +1168,30 @@ fn main() {
                 accumulator -= dt;
             }
 
-            let (present_idx, _) = demo
-                .swapchain_loader
-                .acquire_next_image(
-                    demo.swapchain,
-                    std::u64::MAX,
-                    demo.present_complete_semaphore,
-                    vk::Fence::null(),
-                )
+            let (present_idx, _) = demo.swapchain_loader.acquire_next_image(demo.swapchain, std::u64::MAX, demo.present_complete_semaphore, vk::Fence::null())
                 .unwrap();
-            let clear_values = [
-                vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [0.0, 0.0, 0.0, 0.0],
-                    },
-                },
-                vk::ClearValue {
-                    depth_stencil: vk::ClearDepthStencilValue {
-                        depth: 1.0,
-                        stencil: 0,
-                    },
-                },
-            ];
 
-            let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-                .render_pass(renderpass)
-                .framebuffer(framebuffers[present_idx as usize])
-                .render_area(vk::Rect2D {
-                    offset: vk::Offset2D { x: 0, y: 0 },
-                    extent: demo.surface_resolution.clone(),
-                })
-                .clear_values(&clear_values);
+            // --- wait for swapchain present to finish, submit gbuffer command buffer and signal gbuffer semaphore 
+            let gbuffer_submit_info = vk::SubmitInfo::builder()
+                .wait_semaphores(&[demo.present_complete_semaphore])
+                .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
+                .command_buffers(&[gbuffer_command_buffer])
+                .signal_semaphores(&[gbuffer_semaphore])
+                .build();
 
-            demo::record_submit_command_buffer(
-                &demo.device,
-                demo.draw_command_buffer,
-                demo.present_queue,
-                &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT],
-                &[demo.present_complete_semaphore],
-                &[demo.rendering_complete_semaphore],
-                |device, draw_command_buffer| {
-                    device.cmd_begin_render_pass(
-                        draw_command_buffer,
-                        &render_pass_begin_info,
-                        vk::SubpassContents::INLINE,
-                    );
-                    device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
-                    device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                    let mut dynamic_offset = 0;
+            demo.device.queue_submit(demo.present_queue, &[gbuffer_submit_info], vk::Fence::null())
+                .expect("Failed to submit queue!");
 
-                    let mesh_material_filter = (components::ComponentType::MeshComponent as u32)
-                        | (components::ComponentType::MaterialComponent as u32);
-                    world
-                        .mesh_storage
-                        .iter()
-                        .filter(|entry| {
-                            entry.storage_type & mesh_material_filter == mesh_material_filter
-                        })
-                        .zip(world.material_storage.iter().filter(|entry| {
-                            entry.storage_type & mesh_material_filter == mesh_material_filter
-                        }))
-                        .for_each(|(mesh, material)| {
-                            device.cmd_bind_pipeline(
-                                draw_command_buffer,
-                                vk::PipelineBindPoint::GRAPHICS,
-                                material.component.pso,
-                            );
+            // --- wait for gbuffer semaphore, submit deferred command buffer and signal render complete semaphore
+            let deferred_submit_info = vk::SubmitInfo::builder()
+                .wait_semaphores(&[gbuffer_semaphore])
+                .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
+                .command_buffers(&[demo.draw_command_buffers[present_idx as usize]])
+                .signal_semaphores(&[demo.rendering_complete_semaphore])
+                .build();
 
-                            device.cmd_bind_descriptor_sets(
-                                draw_command_buffer,
-                                vk::PipelineBindPoint::GRAPHICS,
-                                gbuffer_pipeline_layout,
-                                0,
-                                &demo.descriptor_sets,
-                                &[dynamic_offset * dynamic_alignment as u32],
-                            );
-                            device.cmd_bind_vertex_buffers(
-                                draw_command_buffer,
-                                0,
-                                &[mesh.component.vertex_buffer.buffer],
-                                &[0],
-                            );
-                            device.cmd_bind_index_buffer(
-                                draw_command_buffer,
-                                mesh.component.index_buffer.buffer,
-                                0,
-                                vk::IndexType::UINT32,
-                            );
-                            device.cmd_draw_indexed(
-                                draw_command_buffer,
-                                mesh.component.index_buffer.count as u32,
-                                1,
-                                0,
-                                0,
-                                1,
-                            );
-                            dynamic_offset += 1;
-                        });
-
-                    device.cmd_end_render_pass(draw_command_buffer);
-                },
-            );
+            demo.device.queue_submit(demo.present_queue, &[deferred_submit_info], vk::Fence::null())
+                .expect("Failed to submit queue!");
 
             let wait_semaphores = [demo.rendering_complete_semaphore];
             let swapchains = [demo.swapchain];
