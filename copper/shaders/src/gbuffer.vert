@@ -16,12 +16,12 @@ layout (set = 0, binding = 1) uniform UBInstance
 } InstanceData;
 
 layout (location = 0) out vec4 o_color;
-layout (location = 1) out vec3 o_normal_ws;
+layout (location = 1) out vec3 o_normal_vs;
 layout (location = 2) out vec3 o_position_ws;
 
 void main() {
     o_color = color;
-    o_normal_ws = (InstanceData.world * vec4(normal.xyz, 0.0)).xyz;
+    o_normal_vs = (ViewData.view * (InstanceData.world * vec4(normal.xyz, 0.0))).xyz;
     o_position_ws = (InstanceData.world * vec4(position.xyz, 1.0)).xyz;
     mat4 view_projection = ViewData.projection * ViewData.view; 
     gl_Position = view_projection * InstanceData.world  * vec4(position.xyz, 1.0);

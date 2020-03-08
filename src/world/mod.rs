@@ -1,9 +1,3 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::slice::Iter;
-use std::slice::IterMut;
-use std::iter::Iterator;
-use std::ops::DerefMut;
 
 use crate::components;
 
@@ -16,6 +10,7 @@ pub struct World {
     pub mesh_storage: Vec<components::MeshStorageEntry>,
     pub velocity_storage: Vec<components::VelocityStorageEntry>,
     pub material_storage: Vec<components::MaterialStorageEntry>,
+    pub pbr_material_storage: Vec<components::PBRMaterialStorageEntry>,
 }
 
 impl World {
@@ -28,6 +23,7 @@ impl World {
             mesh_storage: vec![],
             velocity_storage: vec![],
             material_storage: vec![],
+            pbr_material_storage: vec![],
         }
     }
 
@@ -42,17 +38,20 @@ impl World {
         assert_eq!(self.pending_mask.is_some(), true);
        
         match &component {
-            components::Component::TransformComponent(transform_component) => {
+            components::Component::TransformComponent(_) => {
                 self.pending_mask = Some(self.pending_mask.unwrap() | components::ComponentType::TransformComponent as u32)
             },
-            components::Component::MeshComponent(mesh_component) => {
+            components::Component::MeshComponent(_) => {
                 self.pending_mask = Some(self.pending_mask.unwrap() | components::ComponentType::MeshComponent as u32)
             },
-            components::Component::VelocityComponent(velocity_component) => {
+            components::Component::VelocityComponent(_) => {
                 self.pending_mask = Some(self.pending_mask.unwrap() | components::ComponentType::VelocityComponent as u32)
             },
-            components::Component::MaterialComponent(material_component) => {
+            components::Component::MaterialComponent(_) => {
                 self.pending_mask = Some(self.pending_mask.unwrap() | components::ComponentType::MaterialComponent as u32)
+            },
+            components::Component::PBRMaterialComponent(_) => {
+                self.pending_mask = Some(self.pending_mask.unwrap() | components::ComponentType::PBRMaterialComponent as u32)
             },
             _ => println!("Component not supported!")
         }
@@ -105,6 +104,14 @@ impl World {
                         component: material
                     };
                     self.material_storage.push(entry);
+                },
+                components::Component::PBRMaterialComponent(pbr_material) => {
+                    let entry = components::StorageEntry::<components::PBRMaterial> {
+                        storage_type: storage_type,
+                        entity: entity,
+                        component: pbr_material
+                    };
+                    self.pbr_material_storage.push(entry);
                 },
                 _ => println!("Component not supported!")
             }

@@ -182,16 +182,16 @@ fn create_gbuffer(
                 .src_stage_mask(vk::PipelineStageFlags::BOTTOM_OF_PIPE)
                 .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
                 .src_access_mask(vk::AccessFlags::MEMORY_READ)
-                .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+                .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE)
                 .dependency_flags(vk::DependencyFlags::BY_REGION)
                 .build(),
             vk::SubpassDependency::builder()
-                .src_subpass(vk::SUBPASS_EXTERNAL)
-                .dst_subpass(0)
-                .src_stage_mask(vk::PipelineStageFlags::BOTTOM_OF_PIPE)
-                .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-                .src_access_mask(vk::AccessFlags::MEMORY_READ)
-                .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+                .src_subpass(0)
+                .dst_subpass(vk::SUBPASS_EXTERNAL)
+                .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+                .dst_stage_mask(vk::PipelineStageFlags::BOTTOM_OF_PIPE)
+                .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE)
+                .dst_access_mask(vk::AccessFlags::SHADER_READ)
                 .dependency_flags(vk::DependencyFlags::BY_REGION)
                 .build()
         ];
@@ -666,6 +666,22 @@ fn main() {
             ))
             .build();
 
+        let deferred_light = world
+            .create_entity()
+            .with_component(components::Component::MaterialComponent(
+                components::Material {
+                    vertex_shader: demo
+                        .get_shader_module("copper/shaders/bin/deferred_vert.spv"),
+                    fragment_shader: demo
+                        .get_shader_module("copper/shaders/bin/deferred_frag.spv"),
+                    pso: vk::Pipeline::null(),
+                    render_pass: renderpass,
+                    pipeline_layout: deferred_pipeline_layout,
+                    color_blend_attachment_states: deferred_color_blend_attachment_states.clone(),
+                },
+            ))
+            .build();
+
         // --- create dynamic uniform buffer
         let min_ub_alignment = demo
             .instance
@@ -781,6 +797,7 @@ fn main() {
 
         // --- build PSOs for objects
         let material_filter = components::ComponentType::MaterialComponent as u32;
+        let mesh_filter = components::ComponentType::MeshComponent as u32;
         world
             .material_storage
             .iter_mut()
@@ -794,21 +811,13 @@ fn main() {
                     viewports,
                     scissors,
                     &entry.component.color_blend_attachment_states,
-                    demo::PSOCreateOption::HasVertexAttributes,
+                    if entry.storage_type & mesh_filter == mesh_filter {
+                        demo::PSOCreateOption::HasVertexAttributes
+                    } else {
+                        demo::PSOCreateOption::NoVertexAttributes
+                    },
                 );
             });
-
-        // --- build deferred pass pso
-        let deferred_pso = demo.create_pso(
-            demo.get_shader_module("copper/shaders/bin/deferred_vert.spv"),
-            demo.get_shader_module("copper/shaders/bin/deferred_frag.spv"),
-            renderpass,
-            deferred_pipeline_layout,
-            viewports,
-            scissors,
-            &deferred_color_blend_attachment_states,
-            demo::PSOCreateOption::NoVertexAttributes,
-        );
 
         // --- setup descriptor pool
         let descriptor_pool_sizes = vec![
@@ -857,7 +866,7 @@ fn main() {
         let gbuffer_info_4 = vk::DescriptorImageInfo::builder()
             .sampler(depth_sampler)
             .image_view(gbuffer.render_targets[4].view)
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_layout(vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL)
             .build();
 
         let deferred_write_descriptor_sets = [
@@ -918,135 +927,11 @@ fn main() {
 
         demo.device.update_descriptor_sets(&gbuffer_write_descriptor_sets, &[]);
 
-        // --- record command buffers for the deferred pass
-        for i in 0..demo.draw_command_buffers.len() {
-            demo::record_command_buffer(
-                &demo.device,
-                demo.draw_command_buffers[i],
-                |device, draw_command_buffer| {
-                    let clear_values = [
-                        vk::ClearValue {
-                            color: vk::ClearColorValue {
-                                float32: [0.0, 0.0, 0.0, 0.0],
-                            },
-                        },
-                        vk::ClearValue {
-                            depth_stencil: vk::ClearDepthStencilValue {
-                                depth: 1.0,
-                                stencil: 0,
-                            },
-                        },
-                    ];
-    
-                    let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-                        .render_pass(renderpass)
-                        .framebuffer(framebuffers[i as usize])
-                        .render_area(vk::Rect2D {
-                            offset: vk::Offset2D { x: 0, y: 0 },
-                            extent: demo.surface_resolution.clone(),
-                        })
-                        .clear_values(&clear_values);
-    
-                    device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
-                    device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
-                    device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-    
-                    device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, deferred_pso);
-                    device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, deferred_pipeline_layout, 0, &deferred_descriptor_sets, &[0]);
-                    device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[fullscreen_quad.vertex_buffer.buffer], &[0]);
-                    device.cmd_bind_index_buffer(draw_command_buffer, fullscreen_quad.index_buffer.buffer, 0, vk::IndexType::UINT32);
-                    device.cmd_draw_indexed(draw_command_buffer, fullscreen_quad.index_buffer.count as u32, 1, 0, 0, 1);
-    
-                    device.cmd_end_render_pass(draw_command_buffer);
-                }
-            );
-        }
-
-        // --- record gbuffer command buffer
+        // --- create gbuffer command buffer
         let gbuffer_command_buffer = demo.get_command_buffer();
 
         let semaphore_create_info = vk::SemaphoreCreateInfo::default();
-        let gbuffer_semaphore = demo.device.create_semaphore(&semaphore_create_info, None).unwrap();
-
-        demo::record_command_buffer(
-            &demo.device,
-            gbuffer_command_buffer,
-            |device, draw_command_buffer| {
-                let clear_values = [
-                    vk::ClearValue {
-                        color: vk::ClearColorValue {
-                            float32: [0.0, 0.0, 0.0, 0.0],
-                        },
-                    },
-                    vk::ClearValue {
-                        color: vk::ClearColorValue {
-                            float32: [0.0, 0.0, 0.0, 0.0],
-                        },
-                    },
-                    vk::ClearValue {
-                        color: vk::ClearColorValue {
-                            float32: [0.0, 0.0, 0.0, 0.0],
-                        },
-                    },
-                    vk::ClearValue {
-                        color: vk::ClearColorValue {
-                            float32: [0.0, 0.0, 0.0, 0.0],
-                        },
-                    },
-                    vk::ClearValue {
-                        depth_stencil: vk::ClearDepthStencilValue {
-                            depth: 1.0,
-                            stencil: 0,
-                        },
-                    },
-                ];
-
-                let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-                    .render_pass(gbuffer.render_pass)
-                    .framebuffer(gbuffer.framebuffer)
-                    .render_area(vk::Rect2D {
-                        offset: vk::Offset2D { x: 0, y: 0 },
-                        extent: demo.surface_resolution.clone(),
-                    })
-                    .clear_values(&clear_values);
-
-                device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
-                device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
-                device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                let mut dynamic_offset = 0;
-
-                let mesh_material_filter = (components::ComponentType::MeshComponent as u32)
-                    | (components::ComponentType::MaterialComponent as u32);
-                world
-                    .mesh_storage
-                    .iter()
-                    .filter(|entry| {
-                        entry.storage_type & mesh_material_filter == mesh_material_filter
-                    })
-                    .zip(world.material_storage.iter().filter(|entry| {
-                        entry.storage_type & mesh_material_filter == mesh_material_filter
-                    }))
-                    .for_each(|(mesh, material)| {
-                        device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, material.component.pso);
-
-                        device.cmd_bind_descriptor_sets(
-                            draw_command_buffer,
-                            vk::PipelineBindPoint::GRAPHICS,
-                            gbuffer_pipeline_layout,
-                            0,
-                            &gbuffer_descriptor_sets,
-                            &[dynamic_offset * dynamic_alignment as u32],
-                        );
-
-                        device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[mesh.component.vertex_buffer.buffer], &[0]);
-                        device.cmd_bind_index_buffer(draw_command_buffer, mesh.component.index_buffer.buffer, 0, vk::IndexType::UINT32);
-                        device.cmd_draw_indexed(draw_command_buffer, mesh.component.index_buffer.count as u32, 1, 0, 0, 1);
-                        dynamic_offset += 1;
-                    });
-
-                device.cmd_end_render_pass(draw_command_buffer);
-            },
-        );        
+        let gbuffer_semaphore = demo.device.create_semaphore(&semaphore_create_info, None).unwrap();      
 
         let dt: f32 = 1.0 / 60.0;
         let mut current_time = std::time::SystemTime::now();
@@ -1061,7 +946,7 @@ fn main() {
             let asset_key = demo.process_asset_event();
             demo.receive_asset_event();
 
-            if (asset_key.is_some()) {
+            if asset_key.is_some() {
                 let key = asset_key.unwrap();
                 let (old_shader_module, new_shader_module) = demo.reload_shader_module(&key);
 
@@ -1079,6 +964,7 @@ fn main() {
                         } else if entry.component.fragment_shader == old_shader_module {
                             entry.component.fragment_shader = new_shader_module;
                         }
+
                         demo.device.destroy_pipeline(entry.component.pso, None);
                         entry.component.pso = demo.create_pso(
                             entry.component.vertex_shader,
@@ -1088,21 +974,32 @@ fn main() {
                             viewports,
                             scissors,
                             &entry.component.color_blend_attachment_states,
-                            demo::PSOCreateOption::HasVertexAttributes
+                            if entry.storage_type & mesh_filter == mesh_filter {
+                                demo::PSOCreateOption::HasVertexAttributes
+                            } else {
+                                demo::PSOCreateOption::NoVertexAttributes
+                            }
                         );
                     });
 
                 demo.device.destroy_shader_module(old_shader_module, None);
             }
 
+            let deferred_pso = world.material_storage
+                .iter_mut()
+                .find(|entry| entry.entity == deferred_light)
+                .unwrap()
+                .component
+                .pso;
+
             let new_time = std::time::SystemTime::now();
-            let mut frame_time =
+            let frame_time =
                 new_time.duration_since(current_time).unwrap().as_millis() as f32 / 1000.0;
             current_time = new_time;
 
             accumulator += frame_time;
 
-            while (accumulator >= dt) {
+            while accumulator >= dt {
                 let transform_velocity_filter = (components::ComponentType::TransformComponent
                     as u32)
                     | (components::ComponentType::VelocityComponent as u32);
@@ -1166,6 +1063,131 @@ fn main() {
                 );
 
                 accumulator -= dt;
+            }
+
+            // --- we have done updates, record gbuffer command buffer
+            demo::record_command_buffer(
+                &demo.device,
+                gbuffer_command_buffer,
+                |device, draw_command_buffer| {
+                    let clear_values = [
+                        vk::ClearValue {
+                            color: vk::ClearColorValue {
+                                float32: [0.0, 0.0, 0.0, 0.0],
+                            },
+                        },
+                        vk::ClearValue {
+                            color: vk::ClearColorValue {
+                                float32: [0.0, 0.0, 0.0, 0.0],
+                            },
+                        },
+                        vk::ClearValue {
+                            color: vk::ClearColorValue {
+                                float32: [0.0, 0.0, 0.0, 0.0],
+                            },
+                        },
+                        vk::ClearValue {
+                            color: vk::ClearColorValue {
+                                float32: [0.0, 0.0, 0.0, 0.0],
+                            },
+                        },
+                        vk::ClearValue {
+                            depth_stencil: vk::ClearDepthStencilValue {
+                                depth: 1.0,
+                                stencil: 0,
+                            },
+                        },
+                    ];
+    
+                    let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+                        .render_pass(gbuffer.render_pass)
+                        .framebuffer(gbuffer.framebuffer)
+                        .render_area(vk::Rect2D {
+                            offset: vk::Offset2D { x: 0, y: 0 },
+                            extent: demo.surface_resolution.clone(),
+                        })
+                        .clear_values(&clear_values);
+    
+                    device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
+                    device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
+                    device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
+                    let mut dynamic_offset = 0;
+    
+                    let mesh_material_filter = (components::ComponentType::MeshComponent as u32)
+                        | (components::ComponentType::MaterialComponent as u32);
+                    world
+                        .mesh_storage
+                        .iter()
+                        .filter(|entry| {
+                            entry.storage_type & mesh_material_filter == mesh_material_filter
+                        })
+                        .zip(world.material_storage.iter().filter(|entry| {
+                            entry.storage_type & mesh_material_filter == mesh_material_filter
+                        }))
+                        .for_each(|(mesh, material)| {
+                            device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, material.component.pso);
+    
+                            device.cmd_bind_descriptor_sets(
+                                draw_command_buffer,
+                                vk::PipelineBindPoint::GRAPHICS,
+                                gbuffer_pipeline_layout,
+                                0,
+                                &gbuffer_descriptor_sets,
+                                &[dynamic_offset * dynamic_alignment as u32],
+                            );
+    
+                            device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[mesh.component.vertex_buffer.buffer], &[0]);
+                            device.cmd_bind_index_buffer(draw_command_buffer, mesh.component.index_buffer.buffer, 0, vk::IndexType::UINT32);
+                            device.cmd_draw_indexed(draw_command_buffer, mesh.component.index_buffer.count as u32, 1, 0, 0, 1);
+                            dynamic_offset += 1;
+                        });
+    
+                    device.cmd_end_render_pass(draw_command_buffer);
+                },
+            );
+
+            // --- now record deferred command buffers
+            for i in 0..demo.draw_command_buffers.len() {
+                demo::record_command_buffer(
+                    &demo.device,
+                    demo.draw_command_buffers[i],
+                    |device, draw_command_buffer| {
+                        let clear_values = [
+                            vk::ClearValue {
+                                color: vk::ClearColorValue {
+                                    float32: [0.0, 0.0, 0.0, 0.0],
+                                },
+                            },
+                            vk::ClearValue {
+                                depth_stencil: vk::ClearDepthStencilValue {
+                                    depth: 1.0,
+                                    stencil: 0,
+                                },
+                            },
+                        ];
+        
+                        let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+                            .render_pass(renderpass)
+                            .framebuffer(framebuffers[i as usize])
+                            .render_area(vk::Rect2D {
+                                offset: vk::Offset2D { x: 0, y: 0 },
+                                extent: demo.surface_resolution.clone(),
+                            })
+                            .clear_values(&clear_values);
+        
+                        device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
+                        device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
+                        device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
+        
+                        device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, deferred_pso);
+                        device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, deferred_pipeline_layout, 0, &deferred_descriptor_sets, &[0]);
+                        device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[fullscreen_quad.vertex_buffer.buffer], &[0]);
+                        device.cmd_bind_index_buffer(draw_command_buffer, fullscreen_quad.index_buffer.buffer, 0, vk::IndexType::UINT32);
+                        device.cmd_draw_indexed(draw_command_buffer, fullscreen_quad.index_buffer.count as u32, 1, 0, 0, 1);
+        
+                        device.cmd_end_render_pass(draw_command_buffer);
+                    }
+                );
             }
 
             let (present_idx, _) = demo.swapchain_loader.acquire_next_image(demo.swapchain, std::u64::MAX, demo.present_complete_semaphore, vk::Fence::null())

@@ -30,11 +30,25 @@ pub struct Material {
     pub color_blend_attachment_states: Vec<vk::PipelineColorBlendAttachmentState>
 }
 
+pub enum PBRMaterialType {
+    Pure, // --- either pure dielectric, or pure metal
+    Coated, // --- mixed, metal with dielectric coat
+}
+
+pub struct PBRMaterial {
+    pub albedo: cgmath::Vector3<f32>,
+    pub f0_reflectance: cgmath::Vector3<f32>,
+    pub roughness: f32,
+    pub metalness: f32,
+    pub material_type: PBRMaterialType,
+}
+
 pub enum Component {
     TransformComponent(Transform),
     MeshComponent(Mesh),
     VelocityComponent(Velocity),
     MaterialComponent(Material),
+    PBRMaterialComponent(PBRMaterial),
 }
 
 #[derive(Clone, Debug, Copy)]
@@ -42,7 +56,8 @@ pub enum ComponentType {
     TransformComponent = 0b0000_0000_0000_0001,
     MeshComponent = 0b0000_0000_0000_0010,
     VelocityComponent = 0b0000_0000_0000_0100,
-    MaterialComponent = 0b0000_0000_0000_1000
+    MaterialComponent = 0b0000_0000_0000_1000,
+    PBRMaterialComponent = 0b0000_0000_0001_0000
 }
 
 pub type Entity = u32;
@@ -57,4 +72,5 @@ pub type TransformStorageEntry = StorageEntry<Transform>;
 pub type MeshStorageEntry = StorageEntry<Mesh>;
 pub type VelocityStorageEntry = StorageEntry<Velocity>;
 pub type MaterialStorageEntry = StorageEntry<Material>;
+pub type PBRMaterialStorageEntry = StorageEntry<PBRMaterial>;
 

@@ -31,7 +31,7 @@ impl RenderTarget {
                 image_layout = vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL;
             }
             if usage.contains(vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT) {
-                aspect_mask = vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL;
+                aspect_mask = vk::ImageAspectFlags::DEPTH;
                 image_layout = vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             }
 
