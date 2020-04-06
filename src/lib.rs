@@ -8,3 +8,4 @@ mod render;
 mod geometry;
 mod components;
 mod world;
+mod material;

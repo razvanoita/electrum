@@ -2,6 +2,7 @@ use ash::util::*;
 pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::vk;
 use ash::{Device, Entry, Instance};
+use ash::prelude::VkResult;
 
 use cgmath::*;
 
@@ -10,6 +11,7 @@ mod geometry;
 mod world;
 mod render;
 mod demo;
+mod material;
 
 use render::buffer::Buffer;
 
@@ -21,11 +23,19 @@ use std::mem;
 use std::mem::align_of;
 use std::ops::Mul;
 use std::os::raw::c_void;
+use probability::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
 struct ViewData {
     projection: cgmath::Matrix4<f32>,
     view: cgmath::Matrix4<f32>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct GbufferFragmentData {
+    albedo_and_roughness: cgmath::Vector4<f32>,
+    reflectance_and_metalness: cgmath::Vector4<f32>,
+    type_and_padding: cgmath::Vector4<f32>
 }
 
 fn update_viewdata_uniform_buffer(
@@ -46,13 +56,54 @@ fn update_viewdata_uniform_buffer(
     }
 }
 
-fn update_dynamic_uniform_buffer(
+fn create_dynamic_uniform_buffer(
+    device: &ash::Device, 
+    mem_prop: &vk::PhysicalDeviceMemoryProperties,
+    stride: u64,
+    count: u64,
+    min_ub_alignment: u64,
+) -> (render::buffer::UniformBuffer, *mut c_void, u64)  {
+    unsafe {
+        let mut dynamic_alignment = stride;
+        if min_ub_alignment > 0 {
+            dynamic_alignment = (dynamic_alignment + min_ub_alignment - 1) & !(min_ub_alignment - 1);
+        }
+
+        let ub_instance_data = render::buffer::UniformBuffer::construct(
+            &device,
+            &mem_prop,
+            count,
+            dynamic_alignment,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            true,
+        );
+
+        device.bind_buffer_memory(
+                ub_instance_data.descriptor.buffer,
+                ub_instance_data.memory,
+                0,
+            )
+            .unwrap();
+
+        let ub_instance_data_ptr = device.map_memory(
+                ub_instance_data.memory,
+                0,
+                ub_instance_data.size,
+                vk::MemoryMapFlags::empty(),
+            );
+
+        (ub_instance_data, ub_instance_data_ptr.unwrap(), dynamic_alignment)
+    }
+}
+
+fn update_dynamic_uniform_buffer<T: Copy>(
     mapped_memory: *mut c_void,
     alignment: vk::DeviceSize,
     size: vk::DeviceSize,
     memory: vk::DeviceMemory,
     device: &ash::Device,
-    instance_data: Vec<cgmath::Matrix4<f32>>,
+    instance_data: Vec<T>,
 ) {
     unsafe {
         let mut aligned_mapped_memory = Align::new(mapped_memory, alignment, size);
@@ -63,7 +114,7 @@ fn update_dynamic_uniform_buffer(
             size: size,
             ..Default::default()
         };
-        device.flush_mapped_memory_ranges(&[memory_range]);
+        device.flush_mapped_memory_ranges(&[memory_range]).unwrap();
     }
 }
 
@@ -375,6 +426,13 @@ fn main() {
                     binding: 1,
                     ..Default::default()
                 },
+                vk::DescriptorSetLayoutBinding {
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    binding: 2,
+                    ..Default::default()
+                },
             ]
         );
         let gbuffer_pipeline_layout = demo.create_pipeline_layout(gbuffer_descriptor_set_layout);
@@ -421,181 +479,25 @@ fn main() {
         );
         let deferred_pipeline_layout = demo.create_pipeline_layout(deferred_descriptor_set_layout);
 
-        // --- create platonic solids
-        let copy_command_buffer_0 = demo.get_and_begin_command_buffer();
-        let tetrahedron_mesh = geometry::mesh(
-            geometry::platonic::tetrahedron(),
+        // --- create platonic solids, let's make an interesting scene
+        let copy_cb0 = demo.get_and_begin_command_buffer();
+        let icosahedron_mesh = geometry::mesh(
+            geometry::platonic::icosahedron(),
             &demo.device,
             &demo.device_memory_properties,
-            copy_command_buffer_0,
+            copy_cb0,
             demo.present_queue,
         );
-        let tetrahedron = world
+        let icosahedron = world
             .create_entity()
             .with_component(components::Component::TransformComponent(
                 components::Transform {
-                    position: cgmath::Vector3 {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 0.0,
-                    },
-                    rotation: cgmath::Vector3 {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 0.0,
-                    },
-                    scale: cgmath::Vector3 {
-                        x: 1.0,
-                        y: 1.0,
-                        z: 1.0,
-                    },
+                    position: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0, },
+                    rotation: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0, },
+                    scale: cgmath::Vector3 { x: 1.5, y: 1.5, z: 1.5, },
                 },
             ))
-            .with_component(components::Component::MeshComponent(tetrahedron_mesh))
-            .with_component(components::Component::VelocityComponent(
-                components::Velocity {
-                    translation_speed: 1.0,
-                    rotation_speed: 1.0,
-                },
-            ))
-            .with_component(components::Component::MaterialComponent(
-                components::Material {
-                    vertex_shader: demo.get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
-                    fragment_shader: demo.get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
-                    pso: vk::Pipeline::null(),
-                    render_pass: gbuffer.render_pass,
-                    pipeline_layout: gbuffer_pipeline_layout,
-                    color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
-                },
-            ))
-            .build();
-
-        let copy_command_buffer_1 = demo.get_and_begin_command_buffer();
-        let cube_mesh = geometry::mesh(
-            geometry::platonic::cube(),
-            &demo.device,
-            &demo.device_memory_properties,
-            copy_command_buffer_1,
-            demo.present_queue,
-        );
-        let cube = world
-            .create_entity()
-            .with_component(components::Component::TransformComponent(
-                components::Transform {
-                    position: cgmath::Vector3 {
-                        x: 3.0,
-                        y: 0.0,
-                        z: 0.0,
-                    },
-                    rotation: cgmath::Vector3 {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 0.0,
-                    },
-                    scale: cgmath::Vector3 {
-                        x: 1.0,
-                        y: 1.0,
-                        z: 1.0,
-                    },
-                },
-            ))
-            .with_component(components::Component::MeshComponent(cube_mesh))
-            .with_component(components::Component::VelocityComponent(
-                components::Velocity {
-                    translation_speed: 1.0,
-                    rotation_speed: 1.0,
-                },
-            ))
-            .with_component(components::Component::MaterialComponent(
-                components::Material {
-                    vertex_shader: demo.get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
-                    fragment_shader: demo.get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
-                    pso: vk::Pipeline::null(),
-                    render_pass: gbuffer.render_pass,
-                    pipeline_layout: gbuffer_pipeline_layout,
-                    color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
-                },
-            ))
-            .build();
-
-        let copy_command_buffer_2 = demo.get_and_begin_command_buffer();
-        let octahedron_mesh = geometry::mesh(
-            geometry::platonic::octahedron(),
-            &demo.device,
-            &demo.device_memory_properties,
-            copy_command_buffer_2,
-            demo.present_queue,
-        );
-        let octahedron = world
-            .create_entity()
-            .with_component(components::Component::TransformComponent(
-                components::Transform {
-                    position: cgmath::Vector3 {
-                        x: -3.0,
-                        y: 0.0,
-                        z: 0.0,
-                    },
-                    rotation: cgmath::Vector3 {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 0.0,
-                    },
-                    scale: cgmath::Vector3 {
-                        x: 1.0,
-                        y: 1.0,
-                        z: 1.0,
-                    },
-                },
-            ))
-            .with_component(components::Component::MeshComponent(octahedron_mesh))
-            .with_component(components::Component::VelocityComponent(
-                components::Velocity {
-                    translation_speed: 1.0,
-                    rotation_speed: 2.0,
-                },
-            ))
-            .with_component(components::Component::MaterialComponent(
-                components::Material {
-                    vertex_shader: demo.get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
-                    fragment_shader: demo.get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
-                    pso: vk::Pipeline::null(),
-                    render_pass: gbuffer.render_pass,
-                    pipeline_layout: gbuffer_pipeline_layout,
-                    color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
-                },
-            ))
-            .build();
-
-        let copy_command_buffer_3 = demo.get_and_begin_command_buffer();
-        let dodecahedron_mesh = geometry::mesh(
-            geometry::platonic::dodecahedron(),
-            &demo.device,
-            &demo.device_memory_properties,
-            copy_command_buffer_3,
-            demo.present_queue,
-        );
-        let dodecahedron = world
-            .create_entity()
-            .with_component(components::Component::TransformComponent(
-                components::Transform {
-                    position: cgmath::Vector3 {
-                        x: 0.0,
-                        y: -3.0,
-                        z: 0.0,
-                    },
-                    rotation: cgmath::Vector3 {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 0.0,
-                    },
-                    scale: cgmath::Vector3 {
-                        x: 1.0,
-                        y: 1.0,
-                        z: 1.0,
-                    },
-                },
-            ))
-            .with_component(components::Component::MeshComponent(dodecahedron_mesh))
+            .with_component(components::Component::MeshComponent(icosahedron_mesh))
             .with_component(components::Component::VelocityComponent(
                 components::Velocity {
                     translation_speed: 1.0,
@@ -614,57 +516,117 @@ fn main() {
                     color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
                 },
             ))
+            .with_component(components::Component::PBRMaterialComponent(
+                material::Materials::Gold.get()
+            ))
             .build();
 
-        let copy_command_buffer_5 = demo.get_and_begin_command_buffer();
-        let icosahedron_mesh = geometry::mesh(
-            geometry::platonic::icosahedron(),
-            &demo.device,
-            &demo.device_memory_properties,
-            copy_command_buffer_5,
-            demo.present_queue,
-        );
-        let icosahedron = world
-            .create_entity()
-            .with_component(components::Component::TransformComponent(
-                components::Transform {
-                    position: cgmath::Vector3 {
-                        x: 0.0,
-                        y: 3.0,
-                        z: 0.0,
+        let mut source = source::default();
+        let distribution = Gaussian::new(0.0, 1.0);
+        let mut positions0: Vec<cgmath::Vector3<f32>> = vec![];
+        for i in 0..20 {
+            let mut sampler = Independent(&distribution, &mut source);
+            let samples = sampler.take(3).collect::<Vec<_>>();
+            positions0.push(cgmath::Vector3 { x: samples[0] as f32, y: samples[1] as f32, z: samples[2] as f32 });
+        }
+        positions0.iter_mut().for_each(|pos| {
+            *pos = pos.normalize();
+        });
+        
+        for pos in positions0 {
+            let copy_cb = demo.get_and_begin_command_buffer();
+            let dodecahedron_mesh = geometry::mesh(
+                geometry::platonic::dodecahedron(),
+                &demo.device,
+                &demo.device_memory_properties,
+                copy_cb,
+                demo.present_queue,
+            );
+            let dodecahedron = world
+                .create_entity()
+                .with_component(components::Component::TransformComponent(
+                    components::Transform {
+                        position: cgmath::Vector3 { x: pos.x * 3.0, y: pos.y * 3.0, z: pos.z * 3.0, },
+                        rotation: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0, },
+                        scale: cgmath::Vector3 { x: 0.25, y: 0.25, z: 0.25, },
                     },
-                    rotation: cgmath::Vector3 {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 0.0,
+                ))
+                .with_component(components::Component::MeshComponent(dodecahedron_mesh))
+                .with_component(components::Component::VelocityComponent(
+                    components::Velocity {
+                        translation_speed: 1.0,
+                        rotation_speed: 1.5,
                     },
-                    scale: cgmath::Vector3 {
-                        x: 1.0,
-                        y: 1.0,
-                        z: 1.0,
+                ))
+                .with_component(components::Component::MaterialComponent(
+                    components::Material {
+                        vertex_shader: demo
+                            .get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
+                        fragment_shader: demo
+                            .get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
+                        pso: vk::Pipeline::null(),
+                        render_pass: gbuffer.render_pass,
+                        pipeline_layout: gbuffer_pipeline_layout,
+                        color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
                     },
-                },
-            ))
-            .with_component(components::Component::MeshComponent(icosahedron_mesh))
-            .with_component(components::Component::VelocityComponent(
-                components::Velocity {
-                    translation_speed: 1.0,
-                    rotation_speed: 3.5,
-                },
-            ))
-            .with_component(components::Component::MaterialComponent(
-                components::Material {
-                    vertex_shader: demo
-                        .get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
-                    fragment_shader: demo
-                        .get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
-                    pso: vk::Pipeline::null(),
-                    render_pass: gbuffer.render_pass,
-                    pipeline_layout: gbuffer_pipeline_layout,
-                    color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
-                },
-            ))
-            .build();
+                ))
+                .with_component(components::Component::PBRMaterialComponent(
+                    material::Materials::RoughPlastic.get()
+                ))
+                .build();
+        }
+
+        let mut rng = rand::thread_rng();
+
+        let mut positions1: Vec<cgmath::Vector3<f32>> = vec![];
+        let vec_to_rotate = Vector3 { x: 0.0, y: 0.0, z: -6.5 };
+        for i in 0..20 {
+            let rotated_vec = cgmath::Matrix3::from_axis_angle(Vector3 { x: 0.5, y: 0.5, z: 0.0 }, cgmath::Rad(rng.gen_range(-3.0, 3.0))) * vec_to_rotate;
+            positions1.push(rotated_vec);
+        }
+
+        for pos in positions1 {
+            let copy_cb = demo.get_and_begin_command_buffer();
+            let tetrahedron_mesh = geometry::mesh(
+                geometry::platonic::tetrahedron(),
+                &demo.device,
+                &demo.device_memory_properties,
+                copy_cb,
+                demo.present_queue,
+            );
+            let tetrahedron = world
+                .create_entity()
+                .with_component(components::Component::TransformComponent(
+                    components::Transform {
+                        position: cgmath::Vector3 { x: pos.x, y: pos.y, z: pos.z, },
+                        rotation: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0, },
+                        scale: cgmath::Vector3 { x: 0.15, y: 0.15, z: 0.15, },
+                    },
+                ))
+                .with_component(components::Component::MeshComponent(tetrahedron_mesh))
+                .with_component(components::Component::VelocityComponent(
+                    components::Velocity {
+                        translation_speed: 1.0,
+                        rotation_speed: 1.5,
+                    },
+                ))
+                .with_component(components::Component::MaterialComponent(
+                    components::Material {
+                        vertex_shader: demo
+                            .get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
+                        fragment_shader: demo
+                            .get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
+                        pso: vk::Pipeline::null(),
+                        render_pass: gbuffer.render_pass,
+                        pipeline_layout: gbuffer_pipeline_layout,
+                        color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
+                    },
+                ))
+                .with_component(components::Component::PBRMaterialComponent(
+                    material::Materials::RoughCopper.get()
+                ))
+                .build();
+        }
 
         let deferred_light = world
             .create_entity()
@@ -682,45 +644,10 @@ fn main() {
             ))
             .build();
 
-        // --- create dynamic uniform buffer
-        let min_ub_alignment = demo
-            .instance
-            .get_physical_device_properties(demo.physical_device)
-            .limits
-            .min_uniform_buffer_offset_alignment;
-        let mut dynamic_alignment = std::mem::size_of::<cgmath::Matrix4<f32>>() as u64;
-        if (min_ub_alignment > 0) {
-            dynamic_alignment =
-                (dynamic_alignment + min_ub_alignment - 1) & !(min_ub_alignment - 1);
-        }
-        let ub_instance_data = render::buffer::UniformBuffer::construct(
-            &demo.device,
-            &demo.device_memory_properties,
-            5 as u64,
-            dynamic_alignment,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            true,
-        );
-        demo.device
-            .bind_buffer_memory(
-                ub_instance_data.descriptor.buffer,
-                ub_instance_data.memory,
-                0,
-            )
-            .unwrap();
-
-        let ub_instance_data_ptr = demo
-            .device
-            .map_memory(
-                ub_instance_data.memory,
-                0,
-                ub_instance_data.size,
-                vk::MemoryMapFlags::empty(),
-            )
-            .unwrap();
-        let mut rng = rand::thread_rng();
+        // --- initialize rotations for objects with transforms
+        let mut object_count = 0;
         let transform_filter = components::ComponentType::TransformComponent as u32;
+        let pbr_filter = components::ComponentType::PBRMaterialComponent as u32;
         world
             .transform_storage
             .iter_mut()
@@ -731,7 +658,31 @@ fn main() {
                     y: rng.gen_range(-1.0, 1.0),
                     z: rng.gen_range(-1.0, 1.0),
                 } * 2.0 * 3.14;
+                object_count += 1;
             });
+
+        // --- create dynamic uniform buffers
+        let min_ub_alignment = demo
+            .instance
+            .get_physical_device_properties(demo.physical_device)
+            .limits
+            .min_uniform_buffer_offset_alignment;
+
+        let (ub_gbuffer_vs, mem_ub_gbuffer_vs, stride_ub_gbuffer_vs) = create_dynamic_uniform_buffer(
+            &demo.device, 
+            &demo.device_memory_properties,
+            std::mem::size_of::<cgmath::Matrix4<f32>>() as u64,
+            object_count,
+            min_ub_alignment
+        );
+
+        let (ub_gbuffer_fs, mem_ub_gbuffer_fs, stride_ub_gbuffer_fs) = create_dynamic_uniform_buffer(
+            &demo.device, 
+            &demo.device_memory_properties,
+            std::mem::size_of::<GbufferFragmentData>() as u64,
+            object_count,
+            min_ub_alignment
+        );
 
         // --- create non-dynamic uniform buffer
         let ub_view_data = render::buffer::UniformBuffer::construct(
@@ -827,7 +778,7 @@ fn main() {
             },
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
-                descriptor_count: 1,
+                descriptor_count: 2,
             },
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
@@ -919,7 +870,13 @@ fn main() {
                 .build(),
             vk::WriteDescriptorSet::builder()
                 .dst_binding(1)
-                .buffer_info(&[ub_instance_data.descriptor])
+                .buffer_info(&[ub_gbuffer_vs.descriptor])
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+                .dst_set(gbuffer_descriptor_sets[0])
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_binding(2)
+                .buffer_info(&[ub_gbuffer_fs.descriptor])
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
                 .dst_set(gbuffer_descriptor_sets[0])
                 .build(),
@@ -1020,7 +977,7 @@ fn main() {
                         };
                     });
 
-                let instance_data: Vec<cgmath::Matrix4<f32>> = world
+                let transform_instance_data: Vec<cgmath::Matrix4<f32>> = world
                     .transform_storage
                     .iter()
                     .filter(|entry| entry.storage_type & transform_filter == transform_filter)
@@ -1050,17 +1007,55 @@ fn main() {
                                 },
                                 cgmath::Rad(entry.component.rotation.z),
                             ))
+                            .mul(cgmath::Matrix4::from_scale(entry.component.scale.x))
                     })
                     .collect();
 
                 update_dynamic_uniform_buffer(
-                    ub_instance_data_ptr,
-                    dynamic_alignment,
-                    ub_instance_data.descriptor.range * instance_data.len() as u64,
-                    ub_instance_data.memory,
+                    mem_ub_gbuffer_vs,
+                    stride_ub_gbuffer_vs,
+                    ub_gbuffer_vs.descriptor.range * transform_instance_data.len() as u64,
+                    ub_gbuffer_vs.memory,
                     &demo.device,
-                    instance_data,
+                    transform_instance_data,
                 );
+
+                let pbr_instance_data: Vec<GbufferFragmentData> = world
+                    .pbr_material_storage
+                    .iter()
+                    .filter(|entry| entry.storage_type & pbr_filter == pbr_filter)
+                    .map(|entry| {
+                        GbufferFragmentData {
+                            albedo_and_roughness: cgmath::Vector4 {
+                                x: entry.component.albedo.x,
+                                y: entry.component.albedo.y,
+                                z: entry.component.albedo.z,
+                                w: entry.component.roughness,
+                            },
+                            reflectance_and_metalness: cgmath::Vector4 {
+                                x: entry.component.f0_reflectance.x,
+                                y: entry.component.f0_reflectance.y,
+                                z: entry.component.f0_reflectance.z,
+                                w: entry.component.metalness,
+                            },
+                            type_and_padding: cgmath::Vector4 {
+                                x: (entry.component.material_type as u32) as f32,
+                                y: 0.0,
+                                z: 0.0,
+                                w: 0.0,
+                            }
+                        }
+                    })
+                    .collect();
+
+                update_dynamic_uniform_buffer(
+                        mem_ub_gbuffer_fs,
+                        stride_ub_gbuffer_fs,
+                        ub_gbuffer_fs.descriptor.range * pbr_instance_data.len() as u64,
+                        ub_gbuffer_fs.memory,
+                        &demo.device,
+                        pbr_instance_data,
+                    );
 
                 accumulator -= dt;
             }
@@ -1133,7 +1128,7 @@ fn main() {
                                 gbuffer_pipeline_layout,
                                 0,
                                 &gbuffer_descriptor_sets,
-                                &[dynamic_offset * dynamic_alignment as u32],
+                                &[dynamic_offset * stride_ub_gbuffer_vs as u32, dynamic_offset * stride_ub_gbuffer_fs as u32],
                             );
     
                             device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[mesh.component.vertex_buffer.buffer], &[0]);
@@ -1228,7 +1223,8 @@ fn main() {
         });
 
         demo.device.unmap_memory(ub_view_data.memory);
-        demo.device.unmap_memory(ub_instance_data.memory);
+        demo.device.unmap_memory(ub_gbuffer_fs.memory);
+        demo.device.unmap_memory(ub_gbuffer_vs.memory);
 
         demo.device.device_wait_idle().unwrap();
 
@@ -1256,7 +1252,8 @@ fn main() {
                 entry.component.vertex_buffer.destroy(&demo.device);
             });
 
-        ub_instance_data.destroy(&demo.device);
+        ub_gbuffer_fs.destroy(&demo.device);
+        ub_gbuffer_vs.destroy(&demo.device);
         ub_view_data.destroy(&demo.device);
         for framebuffer in framebuffers {
             demo.device.destroy_framebuffer(framebuffer, None);

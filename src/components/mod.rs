@@ -30,6 +30,7 @@ pub struct Material {
     pub color_blend_attachment_states: Vec<vk::PipelineColorBlendAttachmentState>
 }
 
+#[derive(Clone, Debug, Copy)]
 pub enum PBRMaterialType {
     Pure, // --- either pure dielectric, or pure metal
     Coated, // --- mixed, metal with dielectric coat

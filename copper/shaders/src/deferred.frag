@@ -27,6 +27,16 @@ vec3 octahedron_decoding(vec2 n) {
     return normalize(v);
 }
 
+vec3 sRGB_to_linear(vec3 srgb) {
+    vec3 res = vec3(0.0);
+    if (srgb.x <= 0.04045 && srgb.y <= 0.04045 && srgb.z <= 0.04045) {
+        res = srgb / 12.92;
+    } else {
+        res = pow((srgb + 0.055) / 1.055, vec3(2.4));
+    }
+    return res;
+}
+
 void main() {
     vec4 gbuffer0 = texture(i_normal_roughness_id, i_uv);
     vec3 normal_vs = octahedron_decoding(gbuffer0.xy);
@@ -36,9 +46,11 @@ void main() {
     vec4 gbuffer3 = texture(i_lighting, i_uv);
     vec4 depth = texture(i_depth, i_uv);
 
+    vec3 reflectance = sRGB_to_linear(gbuffer2.xyz);
+
     vec4 final_color = vec4(0.0);
     if (depth.r < 1.0) {
-        final_color = vec4(normal_vs, 1.0);
+        final_color = vec4(gbuffer2.xyz, 1.0);
     } else {
         vec4 color0 = vec4(0.996, 0.349, 0.341, 1.0) * 0.3;
         vec4 color1 = vec4(0.984, 0.16, 0.337, 1.0) * 0.1;
