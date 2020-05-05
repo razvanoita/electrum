@@ -5,6 +5,8 @@ use ash::{Device, Entry, Instance};
 
 use crate::demo;
 
+use std::mem::align_of;
+
 pub trait Buffer {
     fn construct(
         device: &ash::Device, 
@@ -28,7 +30,7 @@ pub trait Buffer {
             };
             
             device.create_buffer(&buffer_info, None)
-                .unwrap()
+                .expect("Faile to create buffer!")
         }
     }
 
@@ -55,8 +57,23 @@ pub trait Buffer {
             };
 
             device.allocate_memory(&buffer_allocate_info, None)
-                .unwrap()
+                .expect("Failed to allocate memory for buffer!")
         }
+    }
+}
+
+pub fn copy_to_buffer<T: Copy>(
+    device: &ash::Device, 
+    memory: vk::DeviceMemory,
+    data: &[T]
+) {
+    unsafe {
+        let size = (std::mem::size_of::<T>() * data.len()) as u64;
+        let ptr = device.map_memory(memory, 0, size, vk::MemoryMapFlags::empty())
+            .unwrap();
+        let mut aligned_ptr = Align::new(ptr, align_of::<T>() as u64, size);
+        aligned_ptr.copy_from_slice(&data);
+        device.unmap_memory(memory);
     }
 }
 
@@ -65,7 +82,8 @@ pub trait Buffer {
 pub struct VertexBuffer {
     pub buffer: vk::Buffer,
     pub memory: vk::DeviceMemory,
-    pub size: u64
+    pub count: u64,
+    pub stride: u64
 }
 
 impl Buffer for VertexBuffer {
@@ -82,7 +100,8 @@ impl Buffer for VertexBuffer {
         VertexBuffer {
             buffer: buffer,
             memory: Self::allocate_memory(device, &buffer, mem_prop, mem_prop_flags),
-            size: count * stride
+            count: count,
+            stride: stride,
         }
     }
 
@@ -165,5 +184,57 @@ impl Buffer for UniformBuffer {
             device.free_memory(self.memory, None);
             device.destroy_buffer(self.descriptor.buffer, None);
         }
+    }
+}
+
+// ---
+
+pub struct RayTracingBuffer {
+    pub buffer: vk::Buffer,
+    pub memory: vk::DeviceMemory,
+}
+
+impl Buffer for RayTracingBuffer {
+    fn construct(
+        device: &ash::Device, 
+        mem_prop: &vk::PhysicalDeviceMemoryProperties, 
+        count: u64, 
+        stride: u64, 
+        usage: vk::BufferUsageFlags,
+        mem_prop_flags: vk::MemoryPropertyFlags,
+        dynamic: bool
+    ) -> Self {
+        let buffer = Self::construct_buffer(device, count * stride, usage);
+        RayTracingBuffer {
+            buffer: buffer,
+            memory: Self::allocate_memory(device, &buffer, mem_prop, mem_prop_flags),
+        }
+    }
+
+    fn destroy(&self, device: &ash::Device) {
+        unsafe {
+            device.free_memory(self.memory, None);
+            device.destroy_buffer(self.buffer, None);
+        }
+    }
+}
+
+impl RayTracingBuffer {
+    pub fn new(
+        device: &ash::Device, 
+        mem_prop: &vk::PhysicalDeviceMemoryProperties, 
+        count: u64, 
+        stride: u64,
+        mem_prop_flags: vk::MemoryPropertyFlags,
+    ) -> Self {
+        Buffer::construct(
+            &device,
+            &mem_prop,
+            count,
+            stride,
+            vk::BufferUsageFlags::RAY_TRACING_NV,
+            mem_prop_flags,
+            false
+        )
     }
 }

@@ -13,7 +13,7 @@ layout (set = 0, binding = 2) uniform UBMaterialPBR
 {
     vec4 albedo_and_roughness;
     vec4 reflectance_and_metalness;
-    vec4 type_and_padding;
+    vec4 type_and_emissive;
 } PBRInstanceData;
 
 // --- http://jcgt.org/published/0003/02/01/paper.pdf
@@ -35,7 +35,8 @@ void main() {
     vec3 albedo = PBRInstanceData.albedo_and_roughness.xyz;
     vec3 reflectance = PBRInstanceData.reflectance_and_metalness.xyz;
     float metalness = PBRInstanceData.reflectance_and_metalness.w;
-    float material_type = PBRInstanceData.type_and_padding.x;
+    float material_type = PBRInstanceData.type_and_emissive.x;
+    vec3 emissive_color = PBRInstanceData.type_and_emissive.yzw;
 
     vec2 encoded_normal_vs = octahedron_encoding(i_normal_vs.xyz);
     o_normal_roughness_id = vec4(encoded_normal_vs, roughness, 1.0);
@@ -50,5 +51,5 @@ void main() {
 
     o_reflectance_ao = vec4(reflectance, 1.0);
 
-    o_lighting = vec4(1.0);
+    o_lighting = vec4(emissive_color, 1.0);
 }

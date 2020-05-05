@@ -17,8 +17,8 @@ pub struct Mesh {
 }
 
 pub struct Velocity {
-    pub translation_speed: f32,
-    pub rotation_speed: f32,
+    pub translation_speed: cgmath::Vector3<f32>,
+    pub rotation_speed: cgmath::Vector3<f32>,
 }
 
 pub struct Material {
@@ -34,6 +34,7 @@ pub struct Material {
 pub enum PBRMaterialType {
     Pure, // --- either pure dielectric, or pure metal
     Coated, // --- mixed, metal with dielectric coat
+    PureEmissive, // --- just emits light with no other material properties
 }
 
 pub struct PBRMaterial {
@@ -42,6 +43,7 @@ pub struct PBRMaterial {
     pub roughness: f32,
     pub metalness: f32,
     pub material_type: PBRMaterialType,
+    pub emissive_color: cgmath::Vector3<f32>,
 }
 
 pub enum Component {

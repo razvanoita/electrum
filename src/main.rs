@@ -25,17 +25,19 @@ use std::ops::Mul;
 use std::os::raw::c_void;
 use probability::prelude::*;
 
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct ViewData {
     projection: cgmath::Matrix4<f32>,
     view: cgmath::Matrix4<f32>,
 }
 
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct GbufferFragmentData {
     albedo_and_roughness: cgmath::Vector4<f32>,
     reflectance_and_metalness: cgmath::Vector4<f32>,
-    type_and_padding: cgmath::Vector4<f32>
+    type_and_emissive: cgmath::Vector4<f32>
 }
 
 fn update_viewdata_uniform_buffer(
@@ -132,6 +134,7 @@ fn create_gbuffer(
             &device_memory_properties,
             vk::Format::A2R10G10B10_UNORM_PACK32,
             vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            vk::ImageAspectFlags::COLOR,
             width,
             height,
             1,
@@ -142,6 +145,7 @@ fn create_gbuffer(
             &device_memory_properties,
             vk::Format::R8G8B8A8_UNORM,
             vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            vk::ImageAspectFlags::COLOR,
             width,
             height,
             1,
@@ -152,6 +156,7 @@ fn create_gbuffer(
             &device_memory_properties,
             vk::Format::R8G8B8A8_UNORM,
             vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            vk::ImageAspectFlags::COLOR,
             width,
             height,
             1,
@@ -162,6 +167,7 @@ fn create_gbuffer(
             &device_memory_properties,
             vk::Format::R16G16B16A16_SFLOAT,
             vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            vk::ImageAspectFlags::COLOR,
             width,
             height,
             1,
@@ -172,6 +178,7 @@ fn create_gbuffer(
             &device_memory_properties,
             vk::Format::D24_UNORM_S8_UINT,
             vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            vk::ImageAspectFlags::DEPTH,
             width,
             height,
             1,
@@ -233,7 +240,7 @@ fn create_gbuffer(
                 .src_stage_mask(vk::PipelineStageFlags::BOTTOM_OF_PIPE)
                 .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
                 .src_access_mask(vk::AccessFlags::MEMORY_READ)
-                .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE)
+                .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE | vk::AccessFlags::COLOR_ATTACHMENT_READ)
                 .dependency_flags(vk::DependencyFlags::BY_REGION)
                 .build(),
             vk::SubpassDependency::builder()
@@ -241,8 +248,8 @@ fn create_gbuffer(
                 .dst_subpass(vk::SUBPASS_EXTERNAL)
                 .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
                 .dst_stage_mask(vk::PipelineStageFlags::BOTTOM_OF_PIPE)
-                .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE)
-                .dst_access_mask(vk::AccessFlags::SHADER_READ)
+                .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE | vk::AccessFlags::COLOR_ATTACHMENT_READ)
+                .dst_access_mask(vk::AccessFlags::MEMORY_READ)
                 .dependency_flags(vk::DependencyFlags::BY_REGION)
                 .build()
         ];
@@ -354,7 +361,8 @@ fn main() {
         let renderpass_create_info = vk::RenderPassCreateInfo::builder()
             .attachments(&renderpass_atachments)
             .subpasses(&subpasses)
-            .dependencies(&dependencies);
+            .dependencies(&dependencies)
+            .build();
 
         let renderpass = demo
             .device
@@ -500,8 +508,8 @@ fn main() {
             .with_component(components::Component::MeshComponent(icosahedron_mesh))
             .with_component(components::Component::VelocityComponent(
                 components::Velocity {
-                    translation_speed: 1.0,
-                    rotation_speed: 1.5,
+                    translation_speed: cgmath::Vector3 { x: 1.0, y: 1.0, z: 1.0, },
+                    rotation_speed: cgmath::Vector3 { x: 1.5, y: 1.5, z: 1.5, },
                 },
             ))
             .with_component(components::Component::MaterialComponent(
@@ -554,60 +562,8 @@ fn main() {
                 .with_component(components::Component::MeshComponent(dodecahedron_mesh))
                 .with_component(components::Component::VelocityComponent(
                     components::Velocity {
-                        translation_speed: 1.0,
-                        rotation_speed: 1.5,
-                    },
-                ))
-                .with_component(components::Component::MaterialComponent(
-                    components::Material {
-                        vertex_shader: demo
-                            .get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
-                        fragment_shader: demo
-                            .get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
-                        pso: vk::Pipeline::null(),
-                        render_pass: gbuffer.render_pass,
-                        pipeline_layout: gbuffer_pipeline_layout,
-                        color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
-                    },
-                ))
-                .with_component(components::Component::PBRMaterialComponent(
-                    material::Materials::RoughPlastic.get()
-                ))
-                .build();
-        }
-
-        let mut rng = rand::thread_rng();
-
-        let mut positions1: Vec<cgmath::Vector3<f32>> = vec![];
-        let vec_to_rotate = Vector3 { x: 0.0, y: 0.0, z: -6.5 };
-        for i in 0..20 {
-            let rotated_vec = cgmath::Matrix3::from_axis_angle(Vector3 { x: 0.5, y: 0.5, z: 0.0 }, cgmath::Rad(rng.gen_range(-3.0, 3.0))) * vec_to_rotate;
-            positions1.push(rotated_vec);
-        }
-
-        for pos in positions1 {
-            let copy_cb = demo.get_and_begin_command_buffer();
-            let tetrahedron_mesh = geometry::mesh(
-                geometry::platonic::tetrahedron(),
-                &demo.device,
-                &demo.device_memory_properties,
-                copy_cb,
-                demo.present_queue,
-            );
-            let tetrahedron = world
-                .create_entity()
-                .with_component(components::Component::TransformComponent(
-                    components::Transform {
-                        position: cgmath::Vector3 { x: pos.x, y: pos.y, z: pos.z, },
-                        rotation: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0, },
-                        scale: cgmath::Vector3 { x: 0.15, y: 0.15, z: 0.15, },
-                    },
-                ))
-                .with_component(components::Component::MeshComponent(tetrahedron_mesh))
-                .with_component(components::Component::VelocityComponent(
-                    components::Velocity {
-                        translation_speed: 1.0,
-                        rotation_speed: 1.5,
+                        translation_speed: cgmath::Vector3 { x: 1.0, y: 1.0, z: 1.0, },
+                        rotation_speed: cgmath::Vector3 { x: 1.5, y: 1.5, z: 1.5, },
                     },
                 ))
                 .with_component(components::Component::MaterialComponent(
@@ -628,6 +584,104 @@ fn main() {
                 .build();
         }
 
+        let mut rng = rand::thread_rng();
+
+        let mut positions2: Vec<cgmath::Vector3<f32>> = vec![];
+        for i in -15..15 {
+            for j in 0..5 {
+                let anchor_x = i as f32;
+                let coords_x = [ anchor_x - 0.5, anchor_x - 0.25, anchor_x, anchor_x + 0.25, anchor_x + 0.5 ];
+                let anchor_z = j as f32;
+                let coords_z = [ anchor_z - 0.5, anchor_z - 0.25, anchor_z, anchor_z + 0.25, anchor_z + 0.5 ];
+                positions2.push(cgmath::Vector3 { x: coords_x[0], y: 3.0, z: coords_z[0] });
+                positions2.push(cgmath::Vector3 { x: coords_x[1], y: 3.0, z: coords_z[1] });
+                positions2.push(cgmath::Vector3 { x: coords_x[2], y: 3.0, z: coords_z[2] });
+                positions2.push(cgmath::Vector3 { x: coords_x[3], y: 3.0, z: coords_z[3] });
+            } 
+        }
+
+        let copy_cb1 = demo.get_and_begin_command_buffer();
+        let cube_mesh = geometry::mesh(
+            geometry::platonic::cube(),
+            &demo.device,
+            &demo.device_memory_properties,
+            copy_cb1,
+            demo.present_queue,
+        );
+        let ground_plane = world
+            .create_entity()
+            .with_component(components::Component::TransformComponent(
+                components::Transform {
+                    position: cgmath::Vector3 { x: 0.0, y: 4.0, z: 0.0, },
+                    rotation: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0, },
+                    scale: cgmath::Vector3 { x: 20.15, y: 0.15, z: 20.15, },
+                },
+            ))
+            .with_component(components::Component::MeshComponent(cube_mesh))
+            .with_component(components::Component::VelocityComponent(
+                components::Velocity {
+                    translation_speed: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0, },
+                    rotation_speed: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0, },
+                },
+            ))
+            .with_component(components::Component::MaterialComponent(
+                components::Material {
+                    vertex_shader: demo
+                        .get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
+                    fragment_shader: demo
+                        .get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
+                    pso: vk::Pipeline::null(),
+                    render_pass: gbuffer.render_pass,
+                    pipeline_layout: gbuffer_pipeline_layout,
+                    color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
+                },
+            ))
+            .with_component(components::Component::PBRMaterialComponent(
+                material::Materials::RoughPlastic.get()
+            ))
+            .build();
+
+        let copy_cb2 = demo.get_and_begin_command_buffer();
+        let cube_mesh2 = geometry::mesh(
+            geometry::platonic::cube(),
+            &demo.device,
+            &demo.device_memory_properties,
+            copy_cb2,
+            demo.present_queue,
+        );
+        let pillar_light = world
+            .create_entity()
+            .with_component(components::Component::TransformComponent(
+                components::Transform {
+                    position: cgmath::Vector3 { x: 8.0, y: 4.0, z: 0.0, },
+                    rotation: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0, },
+                    scale: cgmath::Vector3 { x: 0.15, y: 10.15, z: 4.15, },
+                },
+            ))
+            .with_component(components::Component::MeshComponent(cube_mesh2))
+            .with_component(components::Component::VelocityComponent(
+                components::Velocity {
+                    translation_speed: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0, },
+                    rotation_speed: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0, },
+                },
+            ))
+            .with_component(components::Component::MaterialComponent(
+                components::Material {
+                    vertex_shader: demo
+                        .get_shader_module("copper/shaders/bin/gbuffer_vert.spv"),
+                    fragment_shader: demo
+                        .get_shader_module("copper/shaders/bin/gbuffer_frag.spv"),
+                    pso: vk::Pipeline::null(),
+                    render_pass: gbuffer.render_pass,
+                    pipeline_layout: gbuffer_pipeline_layout,
+                    color_blend_attachment_states: gbuffer_color_blend_attachment_states.clone(),
+                },
+            ))
+            .with_component(components::Component::PBRMaterialComponent(
+                material::Materials::EmissiveWhite.get()
+            ))
+            .build();
+
         let deferred_light = world
             .create_entity()
             .with_component(components::Component::MaterialComponent(
@@ -643,6 +697,84 @@ fn main() {
                 },
             ))
             .build();
+
+        // --- initialize ray-tracing geometry for our scene and build acceleration structures
+        let mesh_filter = components::ComponentType::MeshComponent as u32;
+        let raytracing_geometry: Vec<vk::GeometryNV> = world
+            .mesh_storage
+            .iter()
+            .filter(|entry| entry.storage_type & mesh_filter == mesh_filter)
+            .map(|entry| {
+                vk::GeometryNV::builder()
+                    .geometry(vk::GeometryDataNV::builder()
+                        .triangles(
+                            vk::GeometryTrianglesNV::builder()
+                                .vertex_data(entry.component.vertex_buffer.buffer)
+                                .vertex_offset(0)
+                                .vertex_count(entry.component.vertex_buffer.count as u32)
+                                .vertex_stride(entry.component.vertex_buffer.stride as vk::DeviceSize)
+                                .vertex_format(vk::Format::R32G32B32A32_SFLOAT)
+                                .index_data(entry.component.index_buffer.buffer)
+                                .index_offset(0)
+                                .index_count(entry.component.index_buffer.count as u32)
+                                .index_type(vk::IndexType::UINT32)
+                                .build()
+                        )
+                        .build()
+                    )   
+                    .flags(vk::GeometryFlagsNV::OPAQUE)
+                    .geometry_type(vk::GeometryTypeNV::TRIANGLES)
+                    .build()
+            })
+            .collect();
+
+        let bl_acceleration_struct_create_info = vk::AccelerationStructureCreateInfoNV::builder()
+            .compacted_size(0)
+            .info(
+                vk::AccelerationStructureInfoNV::builder()
+                    .flags(vk::BuildAccelerationStructureFlagsNV::PREFER_FAST_TRACE)
+                    .ty(vk::AccelerationStructureTypeNV::BOTTOM_LEVEL)
+                    .geometries(&raytracing_geometry)
+                    .build()
+            )
+            .build();
+
+        let bl_acceleration_struct: vk::AccelerationStructureNV = demo.raytracing.
+            create_acceleration_structure(&bl_acceleration_struct_create_info, None)
+            .expect("Failed to create bottom level acceleration structure!");
+
+        let bl_acceleration_struct_mem_req_info = vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
+            .acceleration_structure(bl_acceleration_struct)
+            .ty(vk::AccelerationStructureMemoryRequirementsTypeNV::OBJECT)
+            .build();
+        let bl_acceleration_struct_mem_req = demo.raytracing.get_acceleration_structure_memory_requirements(&bl_acceleration_struct_mem_req_info);
+
+        let bl_acceleration_struct_mem_info = vk::MemoryAllocateInfo::builder()
+            .allocation_size(bl_acceleration_struct_mem_req.memory_requirements.size)
+            .memory_type_index(
+                demo::find_memorytype_index(
+                    &bl_acceleration_struct_mem_req.memory_requirements, 
+                    &demo.device_memory_properties, 
+                    vk::MemoryPropertyFlags::DEVICE_LOCAL
+                )
+                .unwrap()
+            )
+            .build();
+        let bl_acceleration_struct_mem = demo.device
+            .allocate_memory(&bl_acceleration_struct_mem_info, None)
+            .expect("Failed to allocate memory for bottom level acceleration structure!");
+
+        let bl_acceleration_struct_bind_mem_info = [
+            vk::BindAccelerationStructureMemoryInfoNV::builder()
+                .acceleration_structure(bl_acceleration_struct)
+                .memory(bl_acceleration_struct_mem)
+                .build()
+        ];
+        demo.raytracing
+            .bind_acceleration_structure_memory(&bl_acceleration_struct_bind_mem_info)
+            .expect("Failed to bind memory for bottom level acceleration structure!");
+
+        let bl_acceleration_struct_handle = demo.raytracing.get_acceleration_structure_handle(bl_acceleration_struct).unwrap();
 
         // --- initialize rotations for objects with transforms
         let mut object_count = 0;
@@ -660,6 +792,283 @@ fn main() {
                 } * 2.0 * 3.14;
                 object_count += 1;
             });
+
+        world
+            .transform_storage
+            .iter_mut()
+            .find(|entry| entry.entity == ground_plane)
+            .unwrap()
+            .component
+            .rotation = cgmath::Vector3 { x:0.0, y:0.0, z:0.0 };
+
+        world
+            .transform_storage
+            .iter_mut()
+            .find(|entry| entry.entity == pillar_light)
+            .unwrap()
+            .component
+            .rotation = cgmath::Vector3 { x:0.0, y:0.0, z:0.0 };
+
+        // --- now that transforms are in place, start creating the top-level acceleration structure
+        let rt_geo_instances: Vec<geometry::RayTracingInstance> = world
+            .transform_storage
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                let transform_matrix = cgmath::Matrix4::from_translation(entry.component.position)
+                    .mul(cgmath::Matrix4::from_axis_angle(
+                        cgmath::Vector3 {
+                            x: 1.0,
+                            y: 0.0,
+                            z: 0.0,
+                        },
+                        cgmath::Rad(entry.component.rotation.x),
+                    ))
+                    .mul(cgmath::Matrix4::from_axis_angle(
+                        cgmath::Vector3 {
+                            x: 0.0,
+                            y: 1.0,
+                            z: 0.0,
+                        },
+                        cgmath::Rad(entry.component.rotation.y),
+                    ))
+                    .mul(cgmath::Matrix4::from_axis_angle(
+                        cgmath::Vector3 {
+                            x: 0.0,
+                            y: 0.0,
+                            z: 1.0,
+                        },
+                        cgmath::Rad(entry.component.rotation.z),
+                    ))
+                    .mul(cgmath::Matrix4::from_nonuniform_scale(
+                        entry.component.scale.x, 
+                        entry.component.scale.y, 
+                        entry.component.scale.z
+                    ));
+                
+                let transform: [f32;12] = [
+                    transform_matrix.x.x, transform_matrix.x.y, transform_matrix.x.z, transform_matrix.x.w,
+                    transform_matrix.y.x, transform_matrix.y.y, transform_matrix.y.z, transform_matrix.y.w,
+                    transform_matrix.z.x, transform_matrix.z.y, transform_matrix.z.z, transform_matrix.z.w,
+                ];
+
+                geometry::RayTracingInstance::new(
+                    transform,
+                    index as u32,
+                    0xFF,
+                    0,
+                    vk::GeometryInstanceFlagsNV::TRIANGLE_CULL_DISABLE_NV,
+                    bl_acceleration_struct_handle
+                )
+            })
+            .collect();
+
+        let rt_geo_instance_buffer = render::buffer::RayTracingBuffer::new(
+            &demo.device, 
+            &demo.device_memory_properties, 
+            rt_geo_instances.len() as u64, 
+            std::mem::size_of::<geometry::RayTracingInstance>() as u64,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        );
+        render::buffer::copy_to_buffer(&demo.device, rt_geo_instance_buffer.memory, &rt_geo_instances);
+
+        let tl_acceleration_struct_create_info = vk::AccelerationStructureCreateInfoNV::builder()
+            .compacted_size(0)
+            .info(
+                vk::AccelerationStructureInfoNV::builder()
+                    .ty(vk::AccelerationStructureTypeNV::TOP_LEVEL)
+                    .instance_count(rt_geo_instances.len() as u32)
+                    .build()
+            )
+            .build();
+
+        let tl_acceleration_struct = demo.raytracing.create_acceleration_structure(&tl_acceleration_struct_create_info, None).unwrap();
+
+        let tl_acceleration_struct_mem_req_info = vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
+            .acceleration_structure(tl_acceleration_struct)
+            .ty(vk::AccelerationStructureMemoryRequirementsTypeNV::OBJECT)
+            .build();
+        let tl_acceleration_struct_mem_req = demo.raytracing.get_acceleration_structure_memory_requirements(&tl_acceleration_struct_mem_req_info);
+
+        let tl_acceleration_struct_mem_info = vk::MemoryAllocateInfo::builder()
+            .allocation_size(tl_acceleration_struct_mem_req.memory_requirements.size)
+            .memory_type_index(
+                demo::find_memorytype_index(
+                    &tl_acceleration_struct_mem_req.memory_requirements,
+                    &demo.device_memory_properties,
+                    vk::MemoryPropertyFlags::DEVICE_LOCAL,
+                ).unwrap()
+            )   
+            .build();
+        let tl_acceleration_struct_mem = demo.device.allocate_memory(&tl_acceleration_struct_mem_info, None).unwrap();
+
+        let tl_acceleration_struct_bind_mem_info = [
+            vk::BindAccelerationStructureMemoryInfoNV::builder()
+                .acceleration_structure(tl_acceleration_struct)
+                .memory(tl_acceleration_struct_mem)
+                .build()
+        ];
+        demo.raytracing.bind_acceleration_structure_memory(&tl_acceleration_struct_bind_mem_info).unwrap();
+
+        // --- build acceleration structures using scratch-pad buffers
+        let tl_acceleration_struct_mem_req_scratch_info = vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
+            .acceleration_structure(tl_acceleration_struct)
+            .ty(vk::AccelerationStructureMemoryRequirementsTypeNV::BUILD_SCRATCH)
+            .build();
+        let tl_acceleration_struct_mem_req_scratch = demo.raytracing.
+            get_acceleration_structure_memory_requirements(&tl_acceleration_struct_mem_req_scratch_info);
+
+        let bl_acceleration_struct_mem_req_scratch_info = vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
+            .acceleration_structure(bl_acceleration_struct)
+            .ty(vk::AccelerationStructureMemoryRequirementsTypeNV::BUILD_SCRATCH)
+            .build();
+        let bl_acceleration_struct_mem_req_scratch = demo.raytracing.
+            get_acceleration_structure_memory_requirements(&bl_acceleration_struct_mem_req_scratch_info);
+
+        let rt_scratch_buffer = render::buffer::RayTracingBuffer::new(
+            &demo.device, 
+            &demo.device_memory_properties, 
+            1, 
+            std::cmp::max(
+                bl_acceleration_struct_mem_req_scratch.memory_requirements.size, 
+                tl_acceleration_struct_mem_req_scratch.memory_requirements.size
+            ), 
+            vk::MemoryPropertyFlags::DEVICE_LOCAL
+        );
+
+        let markers: [*const c_void; 5] = [
+            std::ffi::CString::new("After command buffer begin").unwrap().as_ptr() as *const c_void,
+            std::ffi::CString::new("After build bottom level acceleration structure").unwrap().as_ptr() as *const c_void,
+            std::ffi::CString::new("After barrier").unwrap().as_ptr() as *const c_void,
+            std::ffi::CString::new("After build top level acceleration structure").unwrap().as_ptr() as *const c_void,
+            std::ffi::CString::new("After barrier").unwrap().as_ptr() as *const c_void,
+        ];
+        
+        let build_acceleration_struct_cb = demo.get_and_begin_command_buffer();
+
+        let memory_barrier = vk::MemoryBarrier::builder()
+            .src_access_mask(vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_NV)
+            .dst_access_mask(vk::AccessFlags::ACCELERATION_STRUCTURE_READ_NV)
+            .build();
+
+        let bl_acceleration_struct_info = vk::AccelerationStructureInfoNV::builder()
+            .ty(vk::AccelerationStructureTypeNV::BOTTOM_LEVEL)
+            .geometries(&raytracing_geometry)
+            .build();
+
+        demo.diagnostics.cmd_set_checkpoint_nv(
+            build_acceleration_struct_cb, 
+            markers[0],
+        );
+
+        demo.raytracing.cmd_build_acceleration_structure(
+            build_acceleration_struct_cb, 
+            &bl_acceleration_struct_info, 
+            vk::Buffer::null(), 
+            0, 
+            false, 
+            bl_acceleration_struct, 
+            vk::AccelerationStructureNV::null(), 
+            rt_scratch_buffer.buffer, 
+            0
+        );
+
+        demo.diagnostics.cmd_set_checkpoint_nv(
+            build_acceleration_struct_cb, 
+            markers[1],
+        );
+
+        demo.device.cmd_pipeline_barrier(
+            build_acceleration_struct_cb, 
+            vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV, 
+            vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV, 
+            vk::DependencyFlags::empty(), 
+            &[memory_barrier], 
+            &[], 
+            &[]
+        );
+
+        demo.diagnostics.cmd_set_checkpoint_nv(
+            build_acceleration_struct_cb, 
+            markers[2],
+        );
+
+        let tl_acceleration_struct_info = vk::AccelerationStructureInfoNV::builder()
+            .instance_count(rt_geo_instances.len() as u32)
+            .ty(vk::AccelerationStructureTypeNV::TOP_LEVEL)
+            .build();
+
+        demo.raytracing.cmd_build_acceleration_structure(
+            build_acceleration_struct_cb, 
+            &tl_acceleration_struct_info, 
+            rt_geo_instance_buffer.buffer, 
+            0, 
+            false, 
+            tl_acceleration_struct, 
+            vk::AccelerationStructureNV::null(), 
+            rt_scratch_buffer.buffer, 
+            0
+        );
+
+        demo.diagnostics.cmd_set_checkpoint_nv(
+            build_acceleration_struct_cb, 
+            markers[3],
+        );
+
+        demo.device.cmd_pipeline_barrier(
+            build_acceleration_struct_cb, 
+            vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV, 
+            vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV, 
+            vk::DependencyFlags::empty(), 
+            &[memory_barrier], 
+            &[], 
+            &[]
+        );
+
+        demo.diagnostics.cmd_set_checkpoint_nv(
+            build_acceleration_struct_cb, 
+            markers[4],
+        );
+
+        demo.device.end_command_buffer(build_acceleration_struct_cb).unwrap();
+
+        let build_as_submit_info = vk::SubmitInfo::builder()
+            .command_buffers(&[build_acceleration_struct_cb])
+            .build();
+
+        demo.device.queue_submit(demo.present_queue, &[build_as_submit_info], vk::Fence::null())
+            .expect("Failed to command buffer to build acceleration structures!");
+
+        let mut checkpoint_data: [vk::CheckpointDataNV; 5] = [
+            vk::CheckpointDataNV::builder()
+                .build(),
+            vk::CheckpointDataNV::builder()
+                .build(),
+            vk::CheckpointDataNV::builder()
+                .build(),
+            vk::CheckpointDataNV::builder()
+                .build(),
+            vk::CheckpointDataNV::builder()
+                .build(),
+        ];
+        //let mut p_checkpoint_data_count: *mut u32 = [5].as_mut_ptr();
+        let mut p_checkpoint_data: *mut vk::CheckpointDataNV = checkpoint_data.as_mut_ptr(); 
+        let mut checkpoint_count = 5u32;
+        let mut p_checkpoint_data_count: *mut u32 = &mut checkpoint_count as *mut u32;
+        //let mut p_checkpoint_data: *mut vk::CheckpointDataNV = std::ptr::null_mut(); 
+
+        match demo.device.queue_wait_idle(demo.present_queue) {
+            Ok(_) => println!("Successfully built acceleration structures"),
+            Err(err) => {
+                println!("Failed to build acceleration structures: {:?}", err);
+                
+                
+                demo.diagnostics.get_queue_checkpoint_data_nv(demo.present_queue, p_checkpoint_data_count, p_checkpoint_data);
+                
+            }
+        }
+
+        demo.device.free_command_buffers(demo.pool, &[build_acceleration_struct_cb]);
 
         // --- create dynamic uniform buffers
         let min_ub_alignment = demo
@@ -712,7 +1121,7 @@ fn main() {
             mem::size_of::<ViewData>() as u64,
             ub_view_data.descriptor.range,
             cgmath::perspective(
-                cgmath::Rad::from(cgmath::Deg(60.0)),
+                cgmath::Rad::from(cgmath::Deg(90.0)),
                 demo.surface_resolution.width as f32 / demo.surface_resolution.height as f32,
                 0.1,
                 256.0,
@@ -748,7 +1157,6 @@ fn main() {
 
         // --- build PSOs for objects
         let material_filter = components::ComponentType::MaterialComponent as u32;
-        let mesh_filter = components::ComponentType::MeshComponent as u32;
         world
             .material_storage
             .iter_mut()
@@ -839,13 +1247,13 @@ fn main() {
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .dst_set(deferred_descriptor_sets[0])
                 .build(),
-                vk::WriteDescriptorSet::builder()
+            vk::WriteDescriptorSet::builder()
                 .dst_binding(3)
                 .image_info(&[gbuffer_info_3])
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .dst_set(deferred_descriptor_sets[0])
                 .build(),
-                vk::WriteDescriptorSet::builder()
+            vk::WriteDescriptorSet::builder()
                 .dst_binding(4)
                 .image_info(&[gbuffer_info_4])
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
@@ -957,9 +1365,8 @@ fn main() {
             accumulator += frame_time;
 
             while accumulator >= dt {
-                let transform_velocity_filter = (components::ComponentType::TransformComponent
-                    as u32)
-                    | (components::ComponentType::VelocityComponent as u32);
+                let transform_velocity_filter = (components::ComponentType::TransformComponent as u32) | (components::ComponentType::VelocityComponent as u32);
+
                 world
                     .velocity_storage
                     .iter()
@@ -971,9 +1378,9 @@ fn main() {
                     }))
                     .for_each(|(velocity, transform)| {
                         transform.component.rotation += cgmath::Vector3 {
-                            x: velocity.component.rotation_speed * dt,
-                            y: velocity.component.rotation_speed * dt,
-                            z: velocity.component.rotation_speed * dt,
+                            x: velocity.component.rotation_speed.x * dt,
+                            y: velocity.component.rotation_speed.y * dt,
+                            z: velocity.component.rotation_speed.z * dt,
                         };
                     });
 
@@ -1007,7 +1414,11 @@ fn main() {
                                 },
                                 cgmath::Rad(entry.component.rotation.z),
                             ))
-                            .mul(cgmath::Matrix4::from_scale(entry.component.scale.x))
+                            .mul(cgmath::Matrix4::from_nonuniform_scale(
+                                entry.component.scale.x, 
+                                entry.component.scale.y, 
+                                entry.component.scale.z
+                            ))
                     })
                     .collect();
 
@@ -1038,11 +1449,11 @@ fn main() {
                                 z: entry.component.f0_reflectance.z,
                                 w: entry.component.metalness,
                             },
-                            type_and_padding: cgmath::Vector4 {
+                            type_and_emissive: cgmath::Vector4 {
                                 x: (entry.component.material_type as u32) as f32,
-                                y: 0.0,
-                                z: 0.0,
-                                w: 0.0,
+                                y: entry.component.emissive_color.x,
+                                z: entry.component.emissive_color.y,
+                                w: entry.component.emissive_color.z,
                             }
                         }
                     })
@@ -1055,7 +1466,7 @@ fn main() {
                         ub_gbuffer_fs.memory,
                         &demo.device,
                         pbr_instance_data,
-                    );
+                );
 
                 accumulator -= dt;
             }
@@ -1097,10 +1508,12 @@ fn main() {
                     let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
                         .render_pass(gbuffer.render_pass)
                         .framebuffer(gbuffer.framebuffer)
-                        .render_area(vk::Rect2D {
-                            offset: vk::Offset2D { x: 0, y: 0 },
-                            extent: demo.surface_resolution.clone(),
-                        })
+                        .render_area(
+                            vk::Rect2D {
+                                offset: vk::Offset2D { x: 0, y: 0 },
+                                extent: demo.surface_resolution.clone(),
+                           }
+                        )
                         .clear_values(&clear_values);
     
                     device.cmd_begin_render_pass(draw_command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
@@ -1108,8 +1521,8 @@ fn main() {
                     device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
                     let mut dynamic_offset = 0;
     
-                    let mesh_material_filter = (components::ComponentType::MeshComponent as u32)
-                        | (components::ComponentType::MaterialComponent as u32);
+                    let mesh_material_filter = (components::ComponentType::MeshComponent as u32) | (components::ComponentType::MaterialComponent as u32);
+
                     world
                         .mesh_storage
                         .iter()
@@ -1220,6 +1633,8 @@ fn main() {
             demo.swapchain_loader
                 .queue_present(demo.present_queue, &present_info)
                 .unwrap();
+            
+            demo.device.queue_wait_idle(demo.present_queue).unwrap();
         });
 
         demo.device.unmap_memory(ub_view_data.memory);
@@ -1227,6 +1642,13 @@ fn main() {
         demo.device.unmap_memory(ub_gbuffer_vs.memory);
 
         demo.device.device_wait_idle().unwrap();
+
+        // --- destroy raytracing
+        demo.raytracing.destroy_acceleration_structure(tl_acceleration_struct, None);
+        demo.device.free_memory(tl_acceleration_struct_mem, None);
+
+        demo.raytracing.destroy_acceleration_structure(bl_acceleration_struct, None);
+        demo.device.free_memory(bl_acceleration_struct_mem, None);
 
         world
             .material_storage

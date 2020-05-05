@@ -18,24 +18,13 @@ impl RenderTarget {
         device_mem_prop: &vk::PhysicalDeviceMemoryProperties,
         format: vk::Format, 
         usage: vk::ImageUsageFlags,
+        aspect: vk::ImageAspectFlags,
         width: u32,
         height: u32,
         depth: u32
     ) -> RenderTarget {
         unsafe {
-            let mut aspect_mask = vk::ImageAspectFlags::empty();
-            let mut image_layout: vk::ImageLayout;
-
-            if usage.contains(vk::ImageUsageFlags::COLOR_ATTACHMENT) {
-                aspect_mask = vk::ImageAspectFlags::COLOR;
-                image_layout = vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL;
-            }
-            if usage.contains(vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT) {
-                aspect_mask = vk::ImageAspectFlags::DEPTH;
-                image_layout = vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            }
-
-            assert!(!aspect_mask.is_empty());
+            assert!(!aspect.is_empty());
 
             let image_create_info = vk::ImageCreateInfo::builder()
                 .usage(usage | vk::ImageUsageFlags::SAMPLED)
@@ -72,7 +61,7 @@ impl RenderTarget {
                     .base_array_layer(0)
                     .level_count(1)
                     .base_mip_level(0)
-                    .aspect_mask(aspect_mask)
+                    .aspect_mask(aspect)
                     .build()
                 )
                 .format(format)

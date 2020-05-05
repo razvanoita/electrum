@@ -6,9 +6,11 @@ use ash::extensions::{
 use crate::geometry;
 
 use ash::extensions::khr::Win32Surface;
+use ash::extensions::nv::RayTracing;
 
+use ash::extensions::nv;
 use ash::util::*;
-pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
+use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0, InstanceV1_1};
 use ash::{vk, Device, Entry, Instance};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -19,7 +21,7 @@ use std::mem;
 use std::ops::Drop;
 use std::os::raw::{c_char, c_void};
 use std::path::Path;
-use std::time::*;
+use std::rc::Rc;
 
 use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
 use std::sync::mpsc::channel;
@@ -62,6 +64,15 @@ pub fn record_command_buffer<D: DeviceV1_0, F: FnOnce(&D, vk::CommandBuffer)>(
             .end_command_buffer(command_buffer)
             .expect("Failed to end command buffer!");
     }
+}
+
+fn extension_names() -> Vec<*const i8> {
+    vec![
+        Surface::name().as_ptr(),
+        Win32Surface::name().as_ptr(),
+        DebugReport::name().as_ptr(),
+        vk::KhrGetPhysicalDeviceProperties2Fn::name().as_ptr(),
+    ]
 }
 
 pub fn record_submit_command_buffer<D: DeviceV1_0, F: FnOnce(&D, vk::CommandBuffer)>(
@@ -134,14 +145,6 @@ unsafe fn create_surface<E: EntryV1_0, I: InstanceV1_0>(
     };
     let win32_surface_loader = Win32Surface::new(entry, instance);
     win32_surface_loader.create_win32_surface(&win32_create_info, None)
-}
-
-fn extension_names() -> Vec<*const i8> {
-    vec![
-        Surface::name().as_ptr(),
-        Win32Surface::name().as_ptr(),
-        DebugReport::name().as_ptr(),
-    ]
 }
 
 unsafe extern "system" fn vulkan_debug_callback(
@@ -245,6 +248,11 @@ pub struct DemoContext {
     pub watcher_rx: std::sync::mpsc::Receiver<std::path::PathBuf>,
     event_collecter: Vec<std::path::PathBuf>,
     ready_to_process_asset_events: bool,
+
+    pub raytracing: Rc<nv::RayTracing>,
+    pub raytracing_properties: vk::PhysicalDeviceRayTracingPropertiesNV,
+
+    pub diagnostics: vk::NvDeviceDiagnosticCheckpointsFn,
 }
 
 #[derive(Clone, Debug, Copy)]
@@ -301,7 +309,10 @@ impl DemoApp {
         unsafe {
             let entry = Entry::new().unwrap();
 
-            let layer_names = [CString::new("VK_LAYER_LUNARG_standard_validation").unwrap()];
+            let layer_names = [
+                CString::new("VK_LAYER_KHRONOS_validation").unwrap(),
+            ];
+
             let layers_names_raw: Vec<*const i8> = layer_names
                 .iter()
                 .map(|raw_name| raw_name.as_ptr())
@@ -314,7 +325,8 @@ impl DemoApp {
                 .application_version(0)
                 .engine_name(&self.app_name)
                 .engine_version(0)
-                .api_version(ash::vk_make_version!(1, 0, 0));
+                .api_version(ash::vk::make_version(1, 0, 0))
+                .build();
 
             let create_info = vk::InstanceCreateInfo::builder()
                 .application_info(&appinfo)
@@ -351,9 +363,11 @@ impl DemoApp {
                         .enumerate()
                         .filter_map(|(index, ref info)| {
                             let pdev_device_surface_support = surface_loader
-                                .get_physical_device_surface_support(*pdev, index as u32, surface);
+                                .get_physical_device_surface_support(*pdev, index as u32, surface)
+                                .unwrap();
                             let supports_graphics_and_surface =
                                 info.queue_flags.contains(vk::QueueFlags::GRAPHICS)
+                                    && info.queue_flags.contains(vk::QueueFlags::COMPUTE)
                                     && pdev_device_surface_support;
                             match supports_graphics_and_surface {
                                 true => Some((*pdev, index)),
@@ -367,12 +381,43 @@ impl DemoApp {
                 .expect("Failed to find suitable device!");
 
             let queue_family_index = queue_family_index as u32;
-            let device_extension_names_raw = [Swapchain::name().as_ptr()];
+
+            let device_extension_names_raw: Vec<*const i8> = vec![
+                Swapchain::name().as_ptr(),
+                RayTracing::name().as_ptr(),
+                vk::KhrMaintenance3Fn::name().as_ptr(),
+                vk::ExtDescriptorIndexingFn::name().as_ptr(),
+                vk::ExtScalarBlockLayoutFn::name().as_ptr(),
+                vk::KhrGetMemoryRequirements2Fn::name().as_ptr(),
+                vk::NvDeviceDiagnosticCheckpointsFn::name().as_ptr(),
+            ];
+
+            let mut descriptor_indexing =
+                vk::PhysicalDeviceDescriptorIndexingFeaturesEXT::builder()
+                    .descriptor_binding_variable_descriptor_count(true)
+                    .runtime_descriptor_array(true)
+                    .build();
+
+            let mut scalar_block = vk::PhysicalDeviceScalarBlockLayoutFeaturesEXT::builder()
+                .scalar_block_layout(true)
+                .build();
+
+            let mut features2 = vk::PhysicalDeviceFeatures2::default();
+            instance
+                .fp_v1_1()
+                .get_physical_device_features2(physical_device, &mut features2);
+
             let features = vk::PhysicalDeviceFeatures {
                 shader_clip_distance: 1,
                 ..Default::default()
             };
             let priorities = [1.0];
+
+            let ext_prop = instance.enumerate_device_extension_properties(physical_device).unwrap();
+            for ext in ext_prop {
+                let mut x = 0;
+                x += 1;
+            }
 
             let queue_info = [vk::DeviceQueueCreateInfo::builder()
                 .queue_family_index(queue_family_index)
@@ -382,7 +427,10 @@ impl DemoApp {
             let device_create_info = vk::DeviceCreateInfo::builder()
                 .queue_create_infos(&queue_info)
                 .enabled_extension_names(&device_extension_names_raw)
-                .enabled_features(&features);
+                .enabled_features(&features2.features)
+                .push_next(&mut scalar_block)
+                .push_next(&mut descriptor_indexing)
+                .build();
 
             let device: Device = instance
                 .create_device(physical_device, &device_create_info, None)
@@ -622,6 +670,13 @@ impl DemoApp {
             })
             .unwrap();
 
+            let raytracing_properties = nv::RayTracing::get_properties(&instance, physical_device);
+            let raytracing = Rc::new(nv::RayTracing::new(&instance, &device));
+
+            let diagnostics = vk::NvDeviceDiagnosticCheckpointsFn::load(|name| unsafe {
+                mem::transmute(instance.get_device_proc_addr(device.handle(), name.as_ptr()))
+            });
+
             DemoContext {
                 entry: entry,
                 instance: instance,
@@ -656,6 +711,9 @@ impl DemoApp {
                 watcher_rx: receiver,
                 event_collecter: Vec::new(),
                 ready_to_process_asset_events: false,
+                raytracing: raytracing,
+                raytracing_properties: raytracing_properties,
+                diagnostics: diagnostics,
             }
         }
     }
@@ -690,7 +748,8 @@ impl DemoContext {
                 .unwrap();
             let command_buffer = command_buffers[0];
             let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
-                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
+                .build();
 
             self.device
                 .begin_command_buffer(command_buffer, &command_buffer_begin_info)
