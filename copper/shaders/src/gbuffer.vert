@@ -1,8 +1,8 @@
 #version 450
 
-layout (location = 0) in vec4 position;
-layout (location = 1) in vec4 normal;
-layout (location = 2) in vec4 color;
+layout (location = 0) in vec3 position;
+layout (location = 1) in vec3 normal;
+layout (location = 2) in vec3 color;
 
 layout (set = 0, binding = 0) uniform UBView
 {
@@ -20,7 +20,7 @@ layout (location = 1) out vec3 o_normal_vs;
 layout (location = 2) out vec3 o_position_ws;
 
 void main() {
-    o_color = color;
+    o_color = vec4(color, 1.0);
     o_normal_vs = (ViewData.view * (InstanceData.world * vec4(normal.xyz, 0.0))).xyz;
     o_position_ws = (InstanceData.world * vec4(position.xyz, 1.0)).xyz;
     mat4 view_projection = ViewData.projection * ViewData.view; 

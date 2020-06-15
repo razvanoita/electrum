@@ -257,7 +257,7 @@ fn create_gbuffer(
         let renderpass_info = vk::RenderPassCreateInfo::builder()
             .attachments(&attachments_descs)
             .subpasses(&[subpass_desc])
-            .dependencies(&subpass_dependencies)
+            .dependencies(&[])
             .build();
 
         let renderpass = device.create_render_pass(&renderpass_info, None).unwrap();
@@ -406,7 +406,7 @@ fn main() {
             dst_alpha_blend_factor: vk::BlendFactor::ZERO,
             alpha_blend_op: vk::BlendOp::ADD,
             color_write_mask: vk::ColorComponentFlags::all(),
-        }; 3];
+        }; 4];
         let deferred_color_blend_attachment_states = vec![vk::PipelineColorBlendAttachmentState {
             blend_enable: 0,
             src_color_blend_factor: vk::BlendFactor::SRC_COLOR,
@@ -698,83 +698,84 @@ fn main() {
             ))
             .build();
 
-        // --- initialize ray-tracing geometry for our scene and build acceleration structures
         let mesh_filter = components::ComponentType::MeshComponent as u32;
-        let raytracing_geometry: Vec<vk::GeometryNV> = world
-            .mesh_storage
-            .iter()
-            .filter(|entry| entry.storage_type & mesh_filter == mesh_filter)
-            .map(|entry| {
-                vk::GeometryNV::builder()
-                    .geometry(vk::GeometryDataNV::builder()
-                        .triangles(
-                            vk::GeometryTrianglesNV::builder()
-                                .vertex_data(entry.component.vertex_buffer.buffer)
-                                .vertex_offset(0)
-                                .vertex_count(entry.component.vertex_buffer.count as u32)
-                                .vertex_stride(entry.component.vertex_buffer.stride as vk::DeviceSize)
-                                .vertex_format(vk::Format::R32G32B32A32_SFLOAT)
-                                .index_data(entry.component.index_buffer.buffer)
-                                .index_offset(0)
-                                .index_count(entry.component.index_buffer.count as u32)
-                                .index_type(vk::IndexType::UINT32)
-                                .build()
-                        )
-                        .build()
-                    )   
-                    .flags(vk::GeometryFlagsNV::OPAQUE)
-                    .geometry_type(vk::GeometryTypeNV::TRIANGLES)
-                    .build()
-            })
-            .collect();
+        // --- initialize ray-tracing geometry for our scene and build acceleration structures
+        
+        // let raytracing_geometry: Vec<vk::GeometryNV> = world
+        //     .mesh_storage
+        //     .iter()
+        //     .filter(|entry| entry.storage_type & mesh_filter == mesh_filter)
+        //     .map(|entry| {
+        //         vk::GeometryNV::builder()
+        //             .geometry(vk::GeometryDataNV::builder()
+        //                 .triangles(
+        //                     vk::GeometryTrianglesNV::builder()
+        //                         .vertex_data(entry.component.vertex_buffer.buffer)
+        //                         .vertex_offset(0)
+        //                         .vertex_count(entry.component.vertex_buffer.count as u32)
+        //                         .vertex_stride(entry.component.vertex_buffer.stride as vk::DeviceSize)
+        //                         .vertex_format(vk::Format::R32G32B32_SFLOAT)
+        //                         .index_data(entry.component.index_buffer.buffer)
+        //                         .index_offset(0)
+        //                         .index_count(entry.component.index_buffer.count as u32)
+        //                         .index_type(vk::IndexType::UINT32)
+        //                         .build()
+        //                 )
+        //                 .build()
+        //             )   
+        //             .flags(vk::GeometryFlagsNV::OPAQUE)
+        //             .geometry_type(vk::GeometryTypeNV::TRIANGLES)
+        //             .build()
+        //     })
+        //     .collect();
 
-        let bl_acceleration_struct_create_info = vk::AccelerationStructureCreateInfoNV::builder()
-            .compacted_size(0)
-            .info(
-                vk::AccelerationStructureInfoNV::builder()
-                    .flags(vk::BuildAccelerationStructureFlagsNV::PREFER_FAST_TRACE)
-                    .ty(vk::AccelerationStructureTypeNV::BOTTOM_LEVEL)
-                    .geometries(&raytracing_geometry)
-                    .build()
-            )
-            .build();
+        // let bl_acceleration_struct_create_info = vk::AccelerationStructureCreateInfoNV::builder()
+        //     .compacted_size(0)
+        //     .info(
+        //         vk::AccelerationStructureInfoNV::builder()
+        //             .flags(vk::BuildAccelerationStructureFlagsNV::PREFER_FAST_TRACE)
+        //             .ty(vk::AccelerationStructureTypeNV::BOTTOM_LEVEL)
+        //             .geometries(&raytracing_geometry)
+        //             .build()
+        //     )
+        //     .build();
 
-        let bl_acceleration_struct: vk::AccelerationStructureNV = demo.raytracing.
-            create_acceleration_structure(&bl_acceleration_struct_create_info, None)
-            .expect("Failed to create bottom level acceleration structure!");
+        // let bl_acceleration_struct: vk::AccelerationStructureNV = demo.raytracing.
+        //     create_acceleration_structure(&bl_acceleration_struct_create_info, None)
+        //     .expect("Failed to create bottom level acceleration structure!");
 
-        let bl_acceleration_struct_mem_req_info = vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
-            .acceleration_structure(bl_acceleration_struct)
-            .ty(vk::AccelerationStructureMemoryRequirementsTypeNV::OBJECT)
-            .build();
-        let bl_acceleration_struct_mem_req = demo.raytracing.get_acceleration_structure_memory_requirements(&bl_acceleration_struct_mem_req_info);
+        // let bl_acceleration_struct_mem_req_info = vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
+        //     .acceleration_structure(bl_acceleration_struct)
+        //     .ty(vk::AccelerationStructureMemoryRequirementsTypeNV::OBJECT)
+        //     .build();
+        // let bl_acceleration_struct_mem_req = demo.raytracing.get_acceleration_structure_memory_requirements(&bl_acceleration_struct_mem_req_info);
 
-        let bl_acceleration_struct_mem_info = vk::MemoryAllocateInfo::builder()
-            .allocation_size(bl_acceleration_struct_mem_req.memory_requirements.size)
-            .memory_type_index(
-                demo::find_memorytype_index(
-                    &bl_acceleration_struct_mem_req.memory_requirements, 
-                    &demo.device_memory_properties, 
-                    vk::MemoryPropertyFlags::DEVICE_LOCAL
-                )
-                .unwrap()
-            )
-            .build();
-        let bl_acceleration_struct_mem = demo.device
-            .allocate_memory(&bl_acceleration_struct_mem_info, None)
-            .expect("Failed to allocate memory for bottom level acceleration structure!");
+        // let bl_acceleration_struct_mem_info = vk::MemoryAllocateInfo::builder()
+        //     .allocation_size(bl_acceleration_struct_mem_req.memory_requirements.size)
+        //     .memory_type_index(
+        //         demo::find_memorytype_index(
+        //             &bl_acceleration_struct_mem_req.memory_requirements, 
+        //             &demo.device_memory_properties, 
+        //             vk::MemoryPropertyFlags::DEVICE_LOCAL
+        //         )
+        //         .unwrap()
+        //     )
+        //     .build();
+        // let bl_acceleration_struct_mem = demo.device
+        //     .allocate_memory(&bl_acceleration_struct_mem_info, None)
+        //     .expect("Failed to allocate memory for bottom level acceleration structure!");
 
-        let bl_acceleration_struct_bind_mem_info = [
-            vk::BindAccelerationStructureMemoryInfoNV::builder()
-                .acceleration_structure(bl_acceleration_struct)
-                .memory(bl_acceleration_struct_mem)
-                .build()
-        ];
-        demo.raytracing
-            .bind_acceleration_structure_memory(&bl_acceleration_struct_bind_mem_info)
-            .expect("Failed to bind memory for bottom level acceleration structure!");
+        // let bl_acceleration_struct_bind_mem_info = [
+        //     vk::BindAccelerationStructureMemoryInfoNV::builder()
+        //         .acceleration_structure(bl_acceleration_struct)
+        //         .memory(bl_acceleration_struct_mem)
+        //         .build()
+        // ];
+        // demo.raytracing
+        //     .bind_acceleration_structure_memory(&bl_acceleration_struct_bind_mem_info)
+        //     .expect("Failed to bind memory for bottom level acceleration structure!");
 
-        let bl_acceleration_struct_handle = demo.raytracing.get_acceleration_structure_handle(bl_acceleration_struct).unwrap();
+        // let bl_acceleration_struct_handle = demo.raytracing.get_acceleration_structure_handle(bl_acceleration_struct).unwrap();
 
         // --- initialize rotations for objects with transforms
         let mut object_count = 0;
@@ -810,265 +811,252 @@ fn main() {
             .rotation = cgmath::Vector3 { x:0.0, y:0.0, z:0.0 };
 
         // --- now that transforms are in place, start creating the top-level acceleration structure
-        let rt_geo_instances: Vec<geometry::RayTracingInstance> = world
-            .transform_storage
-            .iter()
-            .enumerate()
-            .map(|(index, entry)| {
-                let transform_matrix = cgmath::Matrix4::from_translation(entry.component.position)
-                    .mul(cgmath::Matrix4::from_axis_angle(
-                        cgmath::Vector3 {
-                            x: 1.0,
-                            y: 0.0,
-                            z: 0.0,
-                        },
-                        cgmath::Rad(entry.component.rotation.x),
-                    ))
-                    .mul(cgmath::Matrix4::from_axis_angle(
-                        cgmath::Vector3 {
-                            x: 0.0,
-                            y: 1.0,
-                            z: 0.0,
-                        },
-                        cgmath::Rad(entry.component.rotation.y),
-                    ))
-                    .mul(cgmath::Matrix4::from_axis_angle(
-                        cgmath::Vector3 {
-                            x: 0.0,
-                            y: 0.0,
-                            z: 1.0,
-                        },
-                        cgmath::Rad(entry.component.rotation.z),
-                    ))
-                    .mul(cgmath::Matrix4::from_nonuniform_scale(
-                        entry.component.scale.x, 
-                        entry.component.scale.y, 
-                        entry.component.scale.z
-                    ));
+        // let rt_geo_instances: Vec<geometry::RayTracingInstance> = world
+        //     .transform_storage
+        //     .iter()
+        //     .enumerate()
+        //     .map(|(index, entry)| {
+        //         let transform_matrix = cgmath::Matrix4::from_translation(entry.component.position)
+        //             .mul(cgmath::Matrix4::from_axis_angle(
+        //                 cgmath::Vector3 {
+        //                     x: 1.0,
+        //                     y: 0.0,
+        //                     z: 0.0,
+        //                 },
+        //                 cgmath::Rad(entry.component.rotation.x),
+        //             ))
+        //             .mul(cgmath::Matrix4::from_axis_angle(
+        //                 cgmath::Vector3 {
+        //                     x: 0.0,
+        //                     y: 1.0,
+        //                     z: 0.0,
+        //                 },
+        //                 cgmath::Rad(entry.component.rotation.y),
+        //             ))
+        //             .mul(cgmath::Matrix4::from_axis_angle(
+        //                 cgmath::Vector3 {
+        //                     x: 0.0,
+        //                     y: 0.0,
+        //                     z: 1.0,
+        //                 },
+        //                 cgmath::Rad(entry.component.rotation.z),
+        //             ))
+        //             .mul(cgmath::Matrix4::from_nonuniform_scale(
+        //                 entry.component.scale.x, 
+        //                 entry.component.scale.y, 
+        //                 entry.component.scale.z
+        //             ));
                 
-                let transform: [f32;12] = [
-                    transform_matrix.x.x, transform_matrix.x.y, transform_matrix.x.z, transform_matrix.x.w,
-                    transform_matrix.y.x, transform_matrix.y.y, transform_matrix.y.z, transform_matrix.y.w,
-                    transform_matrix.z.x, transform_matrix.z.y, transform_matrix.z.z, transform_matrix.z.w,
-                ];
+        //         let transform: [f32;12] = [
+        //             transform_matrix.x.x, transform_matrix.x.y, transform_matrix.x.z, transform_matrix.x.w,
+        //             transform_matrix.y.x, transform_matrix.y.y, transform_matrix.y.z, transform_matrix.y.w,
+        //             transform_matrix.z.x, transform_matrix.z.y, transform_matrix.z.z, transform_matrix.z.w,
+        //         ];
 
-                geometry::RayTracingInstance::new(
-                    transform,
-                    index as u32,
-                    0xFF,
-                    0,
-                    vk::GeometryInstanceFlagsNV::TRIANGLE_CULL_DISABLE_NV,
-                    bl_acceleration_struct_handle
-                )
-            })
-            .collect();
+        //         geometry::RayTracingInstance::new(
+        //             transform,
+        //             index as u32,
+        //             0xFF,
+        //             0,
+        //             vk::GeometryInstanceFlagsNV::TRIANGLE_CULL_DISABLE_NV,
+        //             bl_acceleration_struct_handle
+        //         )
+        //     })
+        //     .collect();
 
-        let rt_geo_instance_buffer = render::buffer::RayTracingBuffer::new(
-            &demo.device, 
-            &demo.device_memory_properties, 
-            rt_geo_instances.len() as u64, 
-            std::mem::size_of::<geometry::RayTracingInstance>() as u64,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        );
-        render::buffer::copy_to_buffer(&demo.device, rt_geo_instance_buffer.memory, &rt_geo_instances);
+        // let rt_geo_instance_buffer = render::buffer::RayTracingBuffer::new(
+        //     &demo.device, 
+        //     &demo.device_memory_properties, 
+        //     rt_geo_instances.len() as u64, 
+        //     std::mem::size_of::<geometry::RayTracingInstance>() as u64,
+        //     vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        // );
+        // render::buffer::copy_to_buffer(&demo.device, rt_geo_instance_buffer.memory, &rt_geo_instances);
 
-        let tl_acceleration_struct_create_info = vk::AccelerationStructureCreateInfoNV::builder()
-            .compacted_size(0)
-            .info(
-                vk::AccelerationStructureInfoNV::builder()
-                    .ty(vk::AccelerationStructureTypeNV::TOP_LEVEL)
-                    .instance_count(rt_geo_instances.len() as u32)
-                    .build()
-            )
-            .build();
+        // let tl_acceleration_struct_create_info = vk::AccelerationStructureCreateInfoNV::builder()
+        //     .compacted_size(0)
+        //     .info(
+        //         vk::AccelerationStructureInfoNV::builder()
+        //             .ty(vk::AccelerationStructureTypeNV::TOP_LEVEL)
+        //             .instance_count(rt_geo_instances.len() as u32)
+        //             .build()
+        //     )
+        //     .build();
 
-        let tl_acceleration_struct = demo.raytracing.create_acceleration_structure(&tl_acceleration_struct_create_info, None).unwrap();
+        // let tl_acceleration_struct = demo.raytracing.create_acceleration_structure(&tl_acceleration_struct_create_info, None).unwrap();
 
-        let tl_acceleration_struct_mem_req_info = vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
-            .acceleration_structure(tl_acceleration_struct)
-            .ty(vk::AccelerationStructureMemoryRequirementsTypeNV::OBJECT)
-            .build();
-        let tl_acceleration_struct_mem_req = demo.raytracing.get_acceleration_structure_memory_requirements(&tl_acceleration_struct_mem_req_info);
+        // let tl_acceleration_struct_mem_req_info = vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
+        //     .acceleration_structure(tl_acceleration_struct)
+        //     .ty(vk::AccelerationStructureMemoryRequirementsTypeNV::OBJECT)
+        //     .build();
+        // let tl_acceleration_struct_mem_req = demo.raytracing.get_acceleration_structure_memory_requirements(&tl_acceleration_struct_mem_req_info);
 
-        let tl_acceleration_struct_mem_info = vk::MemoryAllocateInfo::builder()
-            .allocation_size(tl_acceleration_struct_mem_req.memory_requirements.size)
-            .memory_type_index(
-                demo::find_memorytype_index(
-                    &tl_acceleration_struct_mem_req.memory_requirements,
-                    &demo.device_memory_properties,
-                    vk::MemoryPropertyFlags::DEVICE_LOCAL,
-                ).unwrap()
-            )   
-            .build();
-        let tl_acceleration_struct_mem = demo.device.allocate_memory(&tl_acceleration_struct_mem_info, None).unwrap();
+        // let tl_acceleration_struct_mem_info = vk::MemoryAllocateInfo::builder()
+        //     .allocation_size(tl_acceleration_struct_mem_req.memory_requirements.size)
+        //     .memory_type_index(
+        //         demo::find_memorytype_index(
+        //             &tl_acceleration_struct_mem_req.memory_requirements,
+        //             &demo.device_memory_properties,
+        //             vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        //         ).unwrap()
+        //     )   
+        //     .build();
+        // let tl_acceleration_struct_mem = demo.device.allocate_memory(&tl_acceleration_struct_mem_info, None).unwrap();
 
-        let tl_acceleration_struct_bind_mem_info = [
-            vk::BindAccelerationStructureMemoryInfoNV::builder()
-                .acceleration_structure(tl_acceleration_struct)
-                .memory(tl_acceleration_struct_mem)
-                .build()
-        ];
-        demo.raytracing.bind_acceleration_structure_memory(&tl_acceleration_struct_bind_mem_info).unwrap();
+        // let tl_acceleration_struct_bind_mem_info = [
+        //     vk::BindAccelerationStructureMemoryInfoNV::builder()
+        //         .acceleration_structure(tl_acceleration_struct)
+        //         .memory(tl_acceleration_struct_mem)
+        //         .build()
+        // ];
+        // demo.raytracing.bind_acceleration_structure_memory(&tl_acceleration_struct_bind_mem_info).unwrap();
 
-        // --- build acceleration structures using scratch-pad buffers
-        let tl_acceleration_struct_mem_req_scratch_info = vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
-            .acceleration_structure(tl_acceleration_struct)
-            .ty(vk::AccelerationStructureMemoryRequirementsTypeNV::BUILD_SCRATCH)
-            .build();
-        let tl_acceleration_struct_mem_req_scratch = demo.raytracing.
-            get_acceleration_structure_memory_requirements(&tl_acceleration_struct_mem_req_scratch_info);
+        // // --- build acceleration structures using scratch-pad buffers
+        // let tl_acceleration_struct_mem_req_scratch_info = vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
+        //     .acceleration_structure(tl_acceleration_struct)
+        //     .ty(vk::AccelerationStructureMemoryRequirementsTypeNV::BUILD_SCRATCH)
+        //     .build();
+        // let tl_acceleration_struct_mem_req_scratch = demo.raytracing.
+        //     get_acceleration_structure_memory_requirements(&tl_acceleration_struct_mem_req_scratch_info);
 
-        let bl_acceleration_struct_mem_req_scratch_info = vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
-            .acceleration_structure(bl_acceleration_struct)
-            .ty(vk::AccelerationStructureMemoryRequirementsTypeNV::BUILD_SCRATCH)
-            .build();
-        let bl_acceleration_struct_mem_req_scratch = demo.raytracing.
-            get_acceleration_structure_memory_requirements(&bl_acceleration_struct_mem_req_scratch_info);
+        // let bl_acceleration_struct_mem_req_scratch_info = vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
+        //     .acceleration_structure(bl_acceleration_struct)
+        //     .ty(vk::AccelerationStructureMemoryRequirementsTypeNV::BUILD_SCRATCH)
+        //     .build();
+        // let bl_acceleration_struct_mem_req_scratch = demo.raytracing.
+        //     get_acceleration_structure_memory_requirements(&bl_acceleration_struct_mem_req_scratch_info);
 
-        let rt_scratch_buffer = render::buffer::RayTracingBuffer::new(
-            &demo.device, 
-            &demo.device_memory_properties, 
-            1, 
-            std::cmp::max(
-                bl_acceleration_struct_mem_req_scratch.memory_requirements.size, 
-                tl_acceleration_struct_mem_req_scratch.memory_requirements.size
-            ), 
-            vk::MemoryPropertyFlags::DEVICE_LOCAL
-        );
+        // let rt_scratch_buffer = render::buffer::RayTracingBuffer::new(
+        //     &demo.device, 
+        //     &demo.device_memory_properties, 
+        //     1, 
+        //     std::cmp::max(
+        //         bl_acceleration_struct_mem_req_scratch.memory_requirements.size, 
+        //         tl_acceleration_struct_mem_req_scratch.memory_requirements.size
+        //     ), 
+        //     vk::MemoryPropertyFlags::DEVICE_LOCAL
+        // );
 
-        let markers: [*const c_void; 5] = [
-            std::ffi::CString::new("After command buffer begin").unwrap().as_ptr() as *const c_void,
-            std::ffi::CString::new("After build bottom level acceleration structure").unwrap().as_ptr() as *const c_void,
-            std::ffi::CString::new("After barrier").unwrap().as_ptr() as *const c_void,
-            std::ffi::CString::new("After build top level acceleration structure").unwrap().as_ptr() as *const c_void,
-            std::ffi::CString::new("After barrier").unwrap().as_ptr() as *const c_void,
-        ];
+        // let markers: [*const c_void; 5] = [
+        //     std::ffi::CString::new("After command buffer begin").unwrap().as_ptr() as *const c_void,
+        //     std::ffi::CString::new("After build bottom level acceleration structure").unwrap().as_ptr() as *const c_void,
+        //     std::ffi::CString::new("After barrier").unwrap().as_ptr() as *const c_void,
+        //     std::ffi::CString::new("After build top level acceleration structure").unwrap().as_ptr() as *const c_void,
+        //     std::ffi::CString::new("After barrier").unwrap().as_ptr() as *const c_void,
+        // ];
         
-        let build_acceleration_struct_cb = demo.get_and_begin_command_buffer();
+        // let build_acceleration_struct_cb = demo.get_and_begin_command_buffer();
 
-        let memory_barrier = vk::MemoryBarrier::builder()
-            .src_access_mask(vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_NV)
-            .dst_access_mask(vk::AccessFlags::ACCELERATION_STRUCTURE_READ_NV)
-            .build();
+        // let memory_barrier = vk::MemoryBarrier::builder()
+        //     .src_access_mask(vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_NV)
+        //     .dst_access_mask(vk::AccessFlags::ACCELERATION_STRUCTURE_READ_NV)
+        //     .build();
 
-        let bl_acceleration_struct_info = vk::AccelerationStructureInfoNV::builder()
-            .ty(vk::AccelerationStructureTypeNV::BOTTOM_LEVEL)
-            .geometries(&raytracing_geometry)
-            .build();
+        // let bl_acceleration_struct_info = vk::AccelerationStructureInfoNV::builder()
+        //     .flags(vk::BuildAccelerationStructureFlagsNV::PREFER_FAST_TRACE)
+        //     .ty(vk::AccelerationStructureTypeNV::BOTTOM_LEVEL)
+        //     .geometries(&raytracing_geometry)
+        //     .build();
 
-        demo.diagnostics.cmd_set_checkpoint_nv(
-            build_acceleration_struct_cb, 
-            markers[0],
-        );
+        // demo.diagnostics.cmd_set_checkpoint_nv(
+        //     build_acceleration_struct_cb, 
+        //     markers[0],
+        // );
 
-        demo.raytracing.cmd_build_acceleration_structure(
-            build_acceleration_struct_cb, 
-            &bl_acceleration_struct_info, 
-            vk::Buffer::null(), 
-            0, 
-            false, 
-            bl_acceleration_struct, 
-            vk::AccelerationStructureNV::null(), 
-            rt_scratch_buffer.buffer, 
-            0
-        );
+        // demo.raytracing.cmd_build_acceleration_structure(
+        //     build_acceleration_struct_cb, 
+        //     &bl_acceleration_struct_info, 
+        //     vk::Buffer::null(), 
+        //     0, 
+        //     false, 
+        //     bl_acceleration_struct, 
+        //     vk::AccelerationStructureNV::null(), 
+        //     rt_scratch_buffer.buffer, 
+        //     0
+        // );
 
-        demo.diagnostics.cmd_set_checkpoint_nv(
-            build_acceleration_struct_cb, 
-            markers[1],
-        );
+        // demo.diagnostics.cmd_set_checkpoint_nv(
+        //     build_acceleration_struct_cb, 
+        //     markers[1],
+        // );
 
-        demo.device.cmd_pipeline_barrier(
-            build_acceleration_struct_cb, 
-            vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV, 
-            vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV, 
-            vk::DependencyFlags::empty(), 
-            &[memory_barrier], 
-            &[], 
-            &[]
-        );
+        // demo.device.cmd_pipeline_barrier(
+        //     build_acceleration_struct_cb, 
+        //     vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV, 
+        //     vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV, 
+        //     vk::DependencyFlags::empty(), 
+        //     &[memory_barrier], 
+        //     &[], 
+        //     &[]
+        // );
 
-        demo.diagnostics.cmd_set_checkpoint_nv(
-            build_acceleration_struct_cb, 
-            markers[2],
-        );
+        // demo.diagnostics.cmd_set_checkpoint_nv(
+        //     build_acceleration_struct_cb, 
+        //     markers[2],
+        // );
 
-        let tl_acceleration_struct_info = vk::AccelerationStructureInfoNV::builder()
-            .instance_count(rt_geo_instances.len() as u32)
-            .ty(vk::AccelerationStructureTypeNV::TOP_LEVEL)
-            .build();
+        // let tl_acceleration_struct_info = vk::AccelerationStructureInfoNV::builder()
+        //     .instance_count(rt_geo_instances.len() as u32)
+        //     .ty(vk::AccelerationStructureTypeNV::TOP_LEVEL)
+        //     .build();
 
-        demo.raytracing.cmd_build_acceleration_structure(
-            build_acceleration_struct_cb, 
-            &tl_acceleration_struct_info, 
-            rt_geo_instance_buffer.buffer, 
-            0, 
-            false, 
-            tl_acceleration_struct, 
-            vk::AccelerationStructureNV::null(), 
-            rt_scratch_buffer.buffer, 
-            0
-        );
+        // demo.raytracing.cmd_build_acceleration_structure(
+        //     build_acceleration_struct_cb, 
+        //     &tl_acceleration_struct_info, 
+        //     rt_geo_instance_buffer.buffer, 
+        //     0, 
+        //     false, 
+        //     tl_acceleration_struct, 
+        //     vk::AccelerationStructureNV::null(), 
+        //     rt_scratch_buffer.buffer, 
+        //     0
+        // );
 
-        demo.diagnostics.cmd_set_checkpoint_nv(
-            build_acceleration_struct_cb, 
-            markers[3],
-        );
+        // demo.diagnostics.cmd_set_checkpoint_nv(
+        //     build_acceleration_struct_cb, 
+        //     markers[3],
+        // );
 
-        demo.device.cmd_pipeline_barrier(
-            build_acceleration_struct_cb, 
-            vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV, 
-            vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV, 
-            vk::DependencyFlags::empty(), 
-            &[memory_barrier], 
-            &[], 
-            &[]
-        );
+        // demo.device.cmd_pipeline_barrier(
+        //     build_acceleration_struct_cb, 
+        //     vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV, 
+        //     vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV, 
+        //     vk::DependencyFlags::empty(), 
+        //     &[memory_barrier], 
+        //     &[], 
+        //     &[]
+        // );
 
-        demo.diagnostics.cmd_set_checkpoint_nv(
-            build_acceleration_struct_cb, 
-            markers[4],
-        );
+        // demo.diagnostics.cmd_set_checkpoint_nv(
+        //     build_acceleration_struct_cb, 
+        //     markers[4],
+        // );
 
-        demo.device.end_command_buffer(build_acceleration_struct_cb).unwrap();
+        // demo::end_and_submit_command_buffer(
+        //     &demo.device,
+        //     demo.present_queue,
+        //     build_acceleration_struct_cb
+        // );
 
-        let build_as_submit_info = vk::SubmitInfo::builder()
-            .command_buffers(&[build_acceleration_struct_cb])
-            .build();
+        // // let mut checkpoint_data: [vk::CheckpointDataNV; 5] = [
+        // //     vk::CheckpointDataNV::builder()
+        // //         .build(),
+        // //     vk::CheckpointDataNV::builder()
+        // //         .build(),
+        // //     vk::CheckpointDataNV::builder()
+        // //         .build(),
+        // //     vk::CheckpointDataNV::builder()
+        // //         .build(),
+        // //     vk::CheckpointDataNV::builder()
+        // //         .build(),
+        // // ];
+        // // //let mut p_checkpoint_data_count: *mut u32 = [5].as_mut_ptr();
+        // // let mut p_checkpoint_data: *mut vk::CheckpointDataNV = checkpoint_data.as_mut_ptr(); 
+        // // let mut checkpoint_count = 5u32;
+        // // let mut p_checkpoint_data_count: *mut u32 = &mut checkpoint_count as *mut u32;
+        // // //let mut p_checkpoint_data: *mut vk::CheckpointDataNV = std::ptr::null_mut(); 
 
-        demo.device.queue_submit(demo.present_queue, &[build_as_submit_info], vk::Fence::null())
-            .expect("Failed to command buffer to build acceleration structures!");
-
-        let mut checkpoint_data: [vk::CheckpointDataNV; 5] = [
-            vk::CheckpointDataNV::builder()
-                .build(),
-            vk::CheckpointDataNV::builder()
-                .build(),
-            vk::CheckpointDataNV::builder()
-                .build(),
-            vk::CheckpointDataNV::builder()
-                .build(),
-            vk::CheckpointDataNV::builder()
-                .build(),
-        ];
-        //let mut p_checkpoint_data_count: *mut u32 = [5].as_mut_ptr();
-        let mut p_checkpoint_data: *mut vk::CheckpointDataNV = checkpoint_data.as_mut_ptr(); 
-        let mut checkpoint_count = 5u32;
-        let mut p_checkpoint_data_count: *mut u32 = &mut checkpoint_count as *mut u32;
-        //let mut p_checkpoint_data: *mut vk::CheckpointDataNV = std::ptr::null_mut(); 
-
-        match demo.device.queue_wait_idle(demo.present_queue) {
-            Ok(_) => println!("Successfully built acceleration structures"),
-            Err(err) => {
-                println!("Failed to build acceleration structures: {:?}", err);
-                
-                
-                demo.diagnostics.get_queue_checkpoint_data_nv(demo.present_queue, p_checkpoint_data_count, p_checkpoint_data);
-                
-            }
-        }
-
-        demo.device.free_command_buffers(demo.pool, &[build_acceleration_struct_cb]);
+        // demo.device.free_command_buffers(demo.pool, &[build_acceleration_struct_cb]);
 
         // --- create dynamic uniform buffers
         let min_ub_alignment = demo
@@ -1588,7 +1576,7 @@ fn main() {
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
         
                         device.cmd_bind_pipeline(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, deferred_pso);
-                        device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, deferred_pipeline_layout, 0, &deferred_descriptor_sets, &[0]);
+                        device.cmd_bind_descriptor_sets(draw_command_buffer, vk::PipelineBindPoint::GRAPHICS, deferred_pipeline_layout, 0, &deferred_descriptor_sets, &[]);
                         device.cmd_bind_vertex_buffers(draw_command_buffer, 0, &[fullscreen_quad.vertex_buffer.buffer], &[0]);
                         device.cmd_bind_index_buffer(draw_command_buffer, fullscreen_quad.index_buffer.buffer, 0, vk::IndexType::UINT32);
                         device.cmd_draw_indexed(draw_command_buffer, fullscreen_quad.index_buffer.count as u32, 1, 0, 0, 1);
@@ -1644,11 +1632,11 @@ fn main() {
         demo.device.device_wait_idle().unwrap();
 
         // --- destroy raytracing
-        demo.raytracing.destroy_acceleration_structure(tl_acceleration_struct, None);
-        demo.device.free_memory(tl_acceleration_struct_mem, None);
+        // demo.raytracing.destroy_acceleration_structure(tl_acceleration_struct, None);
+        // demo.device.free_memory(tl_acceleration_struct_mem, None);
 
-        demo.raytracing.destroy_acceleration_structure(bl_acceleration_struct, None);
-        demo.device.free_memory(bl_acceleration_struct_mem, None);
+        // demo.raytracing.destroy_acceleration_structure(bl_acceleration_struct, None);
+        // demo.device.free_memory(bl_acceleration_struct_mem, None);
 
         world
             .material_storage
